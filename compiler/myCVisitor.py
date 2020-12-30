@@ -275,13 +275,12 @@ class ToLLVMVisitor(CVisitor):
                     edited = self.builder.srem(origin, assignment_expression)
                     return self.builder.store(edited, unary_expression)
                 else:
-                    raise Exception()
+                    raise UnSupportedError("unsupported assignment operator", ctx)
             else:
                 raise Exception()
 
     def visitConditionalExpression(self, ctx: CParser.ConditionalExpressionContext):
         # TODO: dingyifeng
-        # has changed
         logical_or_expression = self.visit(ctx.children[0])
         if len(ctx.children) == 1:
             return logical_or_expression
@@ -300,7 +299,6 @@ class ToLLVMVisitor(CVisitor):
 
     def visitLogicalAndExpression(self, ctx: CParser.LogicalAndExpressionContext):
         # TODO: dingyifeng
-        # has changed
         inclusive_or_expression = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
             return inclusive_or_expression
@@ -310,13 +308,24 @@ class ToLLVMVisitor(CVisitor):
             if operator_expression.getText() != '&&':
                 raise Exception()
             else:
+                if inclusive_or_expression.type != FLOAT_TYPE:
+                    inclusive_or_expression = self.builder.icmp_signed(cmpop='!=', lhs=inclusive_or_expression
+                                                                       , rhs=ir.Constant(INT_TYPE, 0))
+                else:
+                    inclusive_or_expression = self.builder.fcmp_ordered(cmpop='!=', lhs=inclusive_or_expression
+                                                                        , rhs=ir.Constant(FLOAT_TYPE, 0))
+                if logical_and_expression.type != FLOAT_TYPE:
+                    logical_and_expression = self.builder.icmp_signed(cmpop='!=', lhs=logical_and_expression
+                                                                      , rhs=ir.Constant(INT_TYPE, 0))
+                else:
+                    logical_and_expression = self.builder.fcmp_ordered(cmpop='!=', lhs=logical_and_expression
+                                                                       , rhs=ir.Constant(FLOAT_TYPE, 0))
                 return self.builder.and_(logical_and_expression, inclusive_or_expression)
         else:
             raise Exception()
 
     def visitInclusiveOrExpression(self, ctx: CParser.InclusiveOrExpressionContext):
         # TODO: dingyifeng
-        # has changed
         exclusive_or_expression = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
             return exclusive_or_expression
@@ -332,7 +341,6 @@ class ToLLVMVisitor(CVisitor):
 
     def visitExclusiveOrExpression(self, ctx: CParser.ExclusiveOrExpressionContext):
         # TODO: dingyifeng
-        # has changed
         and_expression = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
             return and_expression
@@ -348,7 +356,6 @@ class ToLLVMVisitor(CVisitor):
 
     def visitAndExpression(self, ctx: CParser.AndExpressionContext):
         # TODO: dingyifeng
-        # has changede
         equality_expression = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
             return equality_expression
@@ -364,7 +371,6 @@ class ToLLVMVisitor(CVisitor):
 
     def visitLogicalOrExpression(self, ctx: CParser.LogicalOrExpressionContext):
         # TODO: dingyifeng
-        # has changed
         logical_and_expression = self.visit(ctx.children[len(ctx.children)-1])
         if len(ctx.children) == 1:
             return logical_and_expression
@@ -374,13 +380,24 @@ class ToLLVMVisitor(CVisitor):
             if operator_expression.getText() != '||':
                 raise Exception()
             else:
+                if logical_or_expression.type != FLOAT_TYPE:
+                    logical_or_expression = self.builder.icmp_signed(cmpop='!=', lhs=logical_or_expression
+                                                                     , rhs=ir.Constant(INT_TYPE, 0))
+                else:
+                    logical_or_expression = self.builder.fcmp_ordered(cmpop='!=', lhs=logical_or_expression
+                                                                      , rhs=ir.Constant(FLOAT_TYPE, 0))
+                if logical_and_expression.type != FLOAT_TYPE:
+                    logical_and_expression = self.builder.icmp_signed(cmpop='!=', lhs=logical_and_expression
+                                                                      , rhs=ir.Constant(INT_TYPE, 0))
+                else:
+                    logical_and_expression = self.builder.fcmp_ordered(cmpop='!=', lhs=logical_and_expression
+                                                                       , rhs=ir.Constant(FLOAT_TYPE, 0))
                 return self.builder.or_(logical_or_expression, logical_and_expression)
         else:
             raise Exception()
 
     def visitEqualityExpression(self, ctx: CParser.EqualityExpressionContext):
         # TODO: dingyifeng
-        # has changed
         relational_expression = self.visit(ctx.children[len(ctx.children)-1])
         if len(ctx.children) == 1:
             return relational_expression
@@ -400,7 +417,6 @@ class ToLLVMVisitor(CVisitor):
 
     def visitRelationalExpression(self, ctx: CParser.RelationalExpressionContext):
         # TODO: dingyifeng
-        # has changed
         shift_expression = self.visit(ctx.children[len(ctx.children)-1])
         shift_type = shift_expression.type
         if len(ctx.children) == 1:
@@ -427,7 +443,6 @@ class ToLLVMVisitor(CVisitor):
 
     def visitShiftExpression(self, ctx: CParser.ShiftExpressionContext):
         # TODO: dingyifeng
-        # has changed
         additive_expression = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
             return additive_expression
@@ -438,13 +453,12 @@ class ToLLVMVisitor(CVisitor):
             elif ctx.children[1].getText() == '>>':
                 return self.builder.ashr(shift_expression, additive_expression)
             else:
-                raise Exception()
+                raise UnSupportedError("unsupported shift expression", ctx)
         else:
             raise Exception()
 
     def visitAdditiveExpression(self, ctx: CParser.AdditiveExpressionContext):
         # TODO: dingyifeng
-        # has changed
         multiplicative_expression = self.visit(ctx.children[len(ctx.children)-1])
         if len(ctx.children) == 1:
             return multiplicative_expression
@@ -455,13 +469,12 @@ class ToLLVMVisitor(CVisitor):
             elif ctx.children[1].getText() == '-':
                 return self.builder.sub(additive_expression, multiplicative_expression)
             else:
-                raise Exception()
+                raise UnSupportedError("unsupported additive expression", ctx)
         else:
             raise Exception()
 
     def visitMultiplicativeExpression(self, ctx: CParser.MultiplicativeExpressionContext):
         # TODO: dingyifeng
-        # has changed
         cast_expression, _ = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
             return cast_expression
@@ -474,13 +487,12 @@ class ToLLVMVisitor(CVisitor):
             elif ctx.children[1].getText() == '%':
                 return self.builder.srem(multiplicative_expression, cast_expression)
             else:
-                raise Exception()
+                raise UnSupportedError("unsupported multiplicative expression", ctx)
         else:
             raise Exception()
 
     def visitCastExpression(self, ctx: CParser.CastExpressionContext):
         # TODO: dingyifeng
-        # has changed
         if len(ctx.children) == 1:
             unary_expression, unary_expression_pointer = self.visit(ctx.children[0])
             if unary_expression_pointer is True:
@@ -498,7 +510,6 @@ class ToLLVMVisitor(CVisitor):
 
     def visitUnaryExpression(self, ctx: CParser.UnaryExpressionContext):
         # TODO: dingyifeng
-        # has changed
         if len(ctx.children) == 1:
             postfix_expression, _ = self.visit(ctx.children[0])
             return postfix_expression, _
@@ -546,6 +557,8 @@ class ToLLVMVisitor(CVisitor):
                     else:
                         return self.builder.fcmp_ordered(cmpop='==', lhs=unary_expression
                                                          , rhs=ir.Constant(FLOAT_TYPE, 0)), False
+                else:
+                    raise UnSupportedError("unsupported unary expression", ctx)
         else:
             raise Exception()
 
@@ -567,7 +580,6 @@ class ToLLVMVisitor(CVisitor):
 
     def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
         # TODO: dingyifeng
-        # has changed
         if len(ctx.children) == 1:
             primary_expression = self.visit(ctx.children[0])
             return primary_expression
@@ -634,7 +646,6 @@ class ToLLVMVisitor(CVisitor):
 
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
         # TODO: dingyifeng
-        # has changed
         if len(ctx.children) == 1:
             if ctx.Identifier():
                 identifier = ctx.children[0]
@@ -671,7 +682,6 @@ class ToLLVMVisitor(CVisitor):
 
     def visitArgumentExpressionList(self, ctx: CParser.ArgumentExpressionListContext):
         # TODO: dingyifeng
-        # has changed
         result_arg = []
         if ctx.argumentExpressionList():
             result_arg = self.visit(ctx.argumentExpressionList())
