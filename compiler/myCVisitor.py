@@ -640,101 +640,115 @@ class ToLLVMVisitor(CVisitor):
 
     def visitJumpStatement(self, ctx):
         # TODO: xuyihao
-        if ctx.Return():
-            if ctx.expression():
-                _value = self.visit(ctx.expression())
-                try:
-                    self.builder.ret(_value)
-                except:
-                    pass
-            else:
-                try:
-                    self.builder.ret_void()
-                except:
-                    pass
-
-        elif ctx.Continue():
-            if self.lst_continue:
-                self.builder.branch(self.lst_continue)
-            else:
-                raise Exception()
-        elif ctx.Break():
-            if self.lst_break:
+        if ctx.Break():
+            if self.lst_break is not None:
                 self.builder.branch(self.lst_break)
             else:
                 raise Exception()
+        elif ctx.Continue():
+            if self.lst_continue is not None:
+                self.builder.branch(self.lst_continue)
+            else:
+                raise Exception()
+        elif ctx.Return():
+            if ctx.expression():
+                self.builder.ret(self.visit(ctx.expression()))
+            else:
+                self.builder.ret_void()
 
     def visitIterationStatement(self, ctx: CParser.IterationStatementContext):
         # TODO: xuyihao
         if ctx.While():
-            block_name = self.builder.block.name
             self.symbol_table = self.symbol_table.enter_scope()
-            init_block = self.builder.append_basic_block(name='{}.init'.format(block_name))
-            do_block = self.builder.append_basic_block(name='{}.do'.format(block_name))
-            end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
-            lst_continue, lst_break = self.lst_continue, self.lst_break
-            self.lst_continue, self.lst_break = init_block, end_block
-            try:
-                self.builder.branch(init_block)
-            except:
-                pass
-            self.builder.position_at_start(init_block)
-            expression = self.visit(ctx.expression())
-            self.builder.cbranch(expression, do_block, end_block)
-            self.builder.position_at_start(do_block)
-            self.visit(ctx.statement())
-            try:
-                self.builder.branch(init_block)
-            except:
-                pass
-            self.builder.position_at_start(end_block)
-            self.lst_continue, self.lst_break = lst_continue, lst_break
-            self.symbol_table = self.symbol_table.leave_scope()
-        elif ctx.Do():
-            pass
-        elif ctx.For():
+
             block_name = self.builder.block.name
-            self.symbol_table = self.symbol_table.enter_scope()
-            init_block = self.builder.append_basic_block(name='{}.init'.format(block_name))
-            cond_block = self.builder.append_basic_block(name='{}.cond'.format(block_name))
-            do_block = self.builder.append_basic_block(name='{}.do'.format(block_name))
-            end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
-            lst_continue, lst_break = self.lst_continue, self.lst_break
-            self.lst_continue, self.lst_break = cond_block, end_block
-            self.builder.branch(init_block)
-            self.builder.position_at_start(init_block)
-            cond_exp, exp = self.visit(ctx.forCondition())
+            cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+            stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+            quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+
+            lst_continue = self.lst_continue
+            lst_break = self.lst_break
+            self.lst_continue = cond_block
+            self.lst_break = quit_block
+
+            # The condition expression of While
             self.builder.branch(cond_block)
             self.builder.position_at_start(cond_block)
-            condition = self.visit(cond_exp)
-            self.builder.cbranch(condition, do_block, end_block)
-            self.builder.position_at_start(do_block)
+            expression = self.visit(ctx.expression())
+
+            # Judge if jump to statement or quit
+            self.builder.cbranch(expression, stat_block, quit_block)
+
+            # The statement of While
+            self.builder.position_at_start(stat_block)
             self.visit(ctx.statement())
-            if exp:
-                self.visit(exp)
-            try:
-                self.builder.branch(cond_block)
-            except:
-                pass
-            self.builder.position_at_start(end_block)
-            self.lst_continue, self.lst_break = lst_continue, lst_break
+
+            # Jump back to cond
+            self.builder.branch(cond_block)
+
+            # The quit block
+            self.builder.position_at_start(quit_block)
+
+            self.lst_continue = lst_continue
+            self.lst_break = lst_break
+            self.symbol_table = self.symbol_table.leave_scope()
+
+        elif ctx.For():
+            self.symbol_table = self.symbol_table.enter_scope()
+
+            block_name = self.builder.block.name
+            cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+            stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+            quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+
+            lst_continue = self.lst_continue
+            lst_break = self.lst_break
+            self.lst_continue = cond_block
+            self.lst_break = quit_block
+
+            condition_expression, op_expression = self.visit(ctx.forCondition())
+
+            # The condition of For
+            self.builder.branch(cond_block)
+            self.builder.position_at_start(cond_block)
+            condition_value = self.visit(condition_expression)
+
+            self.builder.cbranch(condition_value, stat_block, quit_block)
+            self.builder.position_at_start(stat_block)
+            self.visit(ctx.statement())
+
+            if op_expression:
+                self.visit(op_expression)
+
+            # come back to the cond
+            self.builder.branch(cond_block)
+
+            # quit block
+            self.builder.position_at_start(quit_block)
+            self.lst_continue = lst_continue
+            self.lst_break = lst_break
+
             self.symbol_table = self.symbol_table.leave_scope()
 
     def visitForCondition(self, ctx: CParser.ForConditionContext):
         # TODO: xuyihao
-        self.visit(ctx.forDeclaration())
+        if ctx.forDeclaration():
+            self.visit(ctx.forDeclaration())
+        elif ctx.expression():
+            self.visit(ctx.expression())
         return ctx.forExpression(0), ctx.forExpression(1)
 
     def visitForDeclaration(self, ctx: CParser.ForDeclarationContext):
         # TODO: xuyihao
-        _type = self.visit(ctx.declarationSpecifiers())
+        type = self.visit(ctx.declarationSpecifiers())
         declarator_list = self.visit(ctx.initDeclaratorList())
+
         for name, init_val in declarator_list:
             _type2 = self.symbol_table.get_type(name)
             if _type2[0] == ARRAY_TYPE:
                 # 数组类型
                 length = _type2[1]
-                arr_type = ir.ArrayType(_type, length.constant)
+                arr_type = ir.ArrayType(type, length.constant)
                 if self.builder:
                     temp = self.builder.alloca(arr_type, name=name)
                     if init_val:
@@ -768,59 +782,80 @@ class ToLLVMVisitor(CVisitor):
 
     def visitSelectionStatement(self, ctx: CParser.SelectionStatementContext):
         # TODO: xuyihao
+
         if ctx.If():
-            branches = ctx.statement()
-            if len(branches) == 2:  # 存在else if/else语句
+            if len(ctx.statement()) > 1:  # else or elif exist
+                self.symbol_table.enter_scope()
+
                 block_name = self.builder.block.name
-                if_block = self.builder.append_basic_block(name='{}.if'.format(block_name))
-                then_block = self.builder.append_basic_block(name='{}.then'.format(block_name))
-                else_block = self.builder.append_basic_block(name='{}.else'.format(block_name))
-                end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
+                cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+                stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+                else_block = self.builder.append_basic_block(name='else'.format(block_name))
+                quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+
+                # condition block
+                self.builder.branch(cond_block)
+                self.builder.position_at_start(cond_block)
+                condition_value = self.visit(ctx.expression())
+                self.builder.cbranch(condition_value, stat_block, else_block)
+
+                # if block
+                self.builder.position_at_start(stat_block)
+                self.symbol_table.enter_scope()
+                self.visit(ctx.statement()[0])
+                self.symbol_table.leave_scope()
+
+                # if quit block
                 try:
-                    self.builder.branch(if_block)
+                    self.builder.branch(quit_block)
                 except:
                     pass
-                self.builder.position_at_start(if_block)
-                expr_val = self.visit(ctx.expression())
-                self.builder.cbranch(expr_val, then_block, else_block)
-                self.builder.position_at_start(then_block)
-                self.symbol_table = self.symbol_table.enter_scope()
-                self.visit(branches[0])
-                self.symbol_table = self.symbol_table.leave_scope()
-                try:
-                    self.builder.branch(end_block)
-                except:
-                    pass
+                self.builder.position_at_start(quit_block)
+
+                # else block
                 self.builder.position_at_start(else_block)
-                self.symbol_table = self.symbol_table.enter_scope()
-                self.visit(branches[1])
-                self.symbol_table = self.symbol_table.leave_scope()
+                self.symbol_table.enter_scope()
+                self.visit(ctx.statement()[1])
+                self.symbol_table.leave_scope()
+
+                # else quit
                 try:
-                    self.builder.branch(end_block)
+                    self.builder.branch(quit_block)
                 except:
                     pass
-                self.builder.position_at_start(end_block)
-            else:  # 只有if分支
+                self.builder.position_at_start(quit_block)
+
+                self.symbol_table.leave_scope()
+
+            else:  # no else
+                self.symbol_table.enter_scope()
+
                 block_name = self.builder.block.name
-                if_block = self.builder.append_basic_block(name='{}.if'.format(block_name))
-                then_block = self.builder.append_basic_block(name='{}.then'.format(block_name))
-                end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
+                cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+                stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+                quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+
+                # condition block
+                self.builder.branch(cond_block)
+                self.builder.position_at_start(cond_block)
+                condition_value = self.visit(ctx.expression())
+                self.builder.cbranch(condition_value, stat_block, quit_block)
+
+                # statement block
+                self.builder.position_at_start(stat_block)
+                self.symbol_table.enter_scope()
+                self.visit(ctx.statement()[0])
+                self.symbol_table.leave_scope()
+
+                # quit block
                 try:
-                    self.builder.branch(if_block)
+                    self.builder.branch(quit_block)
                 except:
                     pass
-                self.builder.position_at_start(if_block)
-                expr_val = self.visit(ctx.expression())
-                self.builder.cbranch(expr_val, then_block, end_block)
-                self.builder.position_at_start(then_block)
-                self.symbol_table = self.symbol_table.enter_scope()
-                self.visit(branches[0])
-                self.symbol_table = self.symbol_table.leave_scope()
-                try:
-                    self.builder.branch(end_block)
-                except:
-                    pass
-                self.builder.position_at_start(end_block)
+                self.builder.position_at_start(quit_block)
+
+                self.symbol_table.leave_scope()
+
 
     def visitTerminal(self, node):
         return node.getText()
