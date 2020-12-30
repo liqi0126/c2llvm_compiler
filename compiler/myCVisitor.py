@@ -233,7 +233,6 @@ class ToLLVMVisitor(CVisitor):
             self.symbol_table.insert(name, btype=myType, value=value)
 
     def visitAssignmentExpression(self, ctx: CParser.AssignmentExpressionContext):
-        # TODO: dingyifeng
         if len(ctx.children) == 1:
             conditional_expression = self.visit(ctx.children[0])
             return conditional_expression
@@ -281,7 +280,6 @@ class ToLLVMVisitor(CVisitor):
                 raise Exception()
 
     def visitConditionalExpression(self, ctx: CParser.ConditionalExpressionContext):
-        # TODO: dingyifeng
         logical_or_expression = self.visit(ctx.children[0])
         if len(ctx.children) == 1:
             return logical_or_expression
@@ -299,7 +297,6 @@ class ToLLVMVisitor(CVisitor):
 
 
     def visitLogicalAndExpression(self, ctx: CParser.LogicalAndExpressionContext):
-        # TODO: dingyifeng
         inclusive_or_expression = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
             return inclusive_or_expression
@@ -326,7 +323,6 @@ class ToLLVMVisitor(CVisitor):
             raise Exception()
 
     def visitInclusiveOrExpression(self, ctx: CParser.InclusiveOrExpressionContext):
-        # TODO: dingyifeng
         exclusive_or_expression = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
             return exclusive_or_expression
@@ -341,7 +337,6 @@ class ToLLVMVisitor(CVisitor):
             raise Exception()
 
     def visitExclusiveOrExpression(self, ctx: CParser.ExclusiveOrExpressionContext):
-        # TODO: dingyifeng
         and_expression = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
             return and_expression
@@ -356,7 +351,6 @@ class ToLLVMVisitor(CVisitor):
             raise Exception()
 
     def visitAndExpression(self, ctx: CParser.AndExpressionContext):
-        # TODO: dingyifeng
         equality_expression = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
             return equality_expression
@@ -371,7 +365,6 @@ class ToLLVMVisitor(CVisitor):
             raise Exception()
 
     def visitConditionalExpression(self, ctx: CParser.ConditionalExpressionContext):
-        # TODO: dingyifeng
         logical_or_expression = self.visit(ctx.children[0])
         if len(ctx.children) == 1:
             return logical_or_expression
@@ -388,7 +381,6 @@ class ToLLVMVisitor(CVisitor):
             raise Exception()
 
     def visitLogicalOrExpression(self, ctx: CParser.LogicalOrExpressionContext):
-        # TODO: dingyifeng
         logical_and_expression = self.visit(ctx.children[len(ctx.children)-1])
         if len(ctx.children) == 1:
             return logical_and_expression
@@ -415,7 +407,6 @@ class ToLLVMVisitor(CVisitor):
             raise Exception()
 
     def visitEqualityExpression(self, ctx: CParser.EqualityExpressionContext):
-        # TODO: dingyifeng
         relational_expression = self.visit(ctx.children[len(ctx.children)-1])
         if len(ctx.children) == 1:
             return relational_expression
@@ -437,7 +428,6 @@ class ToLLVMVisitor(CVisitor):
 
 
     def visitRelationalExpression(self, ctx: CParser.RelationalExpressionContext):
-        # TODO: dingyifeng
         shift_expression = self.visit(ctx.children[len(ctx.children)-1])
         shift_type = shift_expression.type
         if len(ctx.children) == 1:
@@ -460,7 +450,6 @@ class ToLLVMVisitor(CVisitor):
 
 
     def visitShiftExpression(self, ctx: CParser.ShiftExpressionContext):
-        # TODO: dingyifeng
         additive_expression = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
             return additive_expression
@@ -476,7 +465,6 @@ class ToLLVMVisitor(CVisitor):
             raise Exception()
 
     def visitAdditiveExpression(self, ctx: CParser.AdditiveExpressionContext):
-        # TODO: dingyifeng
         multiplicative_expression = self.visit(ctx.children[len(ctx.children)-1])
         if len(ctx.children) == 1:
             return multiplicative_expression
@@ -492,7 +480,6 @@ class ToLLVMVisitor(CVisitor):
             raise Exception()
 
     def visitMultiplicativeExpression(self, ctx: CParser.MultiplicativeExpressionContext):
-        # TODO: dingyifeng
         cast_expression, _ = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
             return cast_expression
@@ -510,7 +497,6 @@ class ToLLVMVisitor(CVisitor):
             raise Exception()
 
     def visitCastExpression(self, ctx: CParser.CastExpressionContext):
-        # TODO: dingyifeng
         if len(ctx.children) == 1:
             unary_expression, unary_expression_pointer = self.visit(ctx.children[0])
             if unary_expression_pointer is True:
@@ -527,7 +513,6 @@ class ToLLVMVisitor(CVisitor):
                 return cast_expression, cast_expression_pointer
 
     def visitUnaryExpression(self, ctx: CParser.UnaryExpressionContext):
-        # TODO: dingyifeng
         if len(ctx.children) == 1:
             postfix_expression, _ = self.visit(ctx.children[0])
             return postfix_expression, _
@@ -592,12 +577,10 @@ class ToLLVMVisitor(CVisitor):
                                                                   , identifier.getText())
         else:
             raise Exception()
-        # constant type?
         identifier_indices = [ir.Constant(INT_TYPE, 0), ir.Constant(INT_TYPE, identifier_index)]
         return postfix_expression_pointer, identifier_indices
 
     def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
-        # TODO: dingyifeng
         if len(ctx.children) == 1:
             primary_expression = self.visit(ctx.children[0])
             return primary_expression
@@ -663,7 +646,6 @@ class ToLLVMVisitor(CVisitor):
                 raise Exception()
 
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
-        # TODO: dingyifeng
         if len(ctx.children) == 1:
             if ctx.Identifier():
                 identifier = ctx.children[0]
@@ -699,7 +681,6 @@ class ToLLVMVisitor(CVisitor):
             raise Exception()
 
     def visitArgumentExpressionList(self, ctx: CParser.ArgumentExpressionListContext):
-        # TODO: dingyifeng
         result_arg = []
         if ctx.argumentExpressionList():
             result_arg = self.visit(ctx.argumentExpressionList())
