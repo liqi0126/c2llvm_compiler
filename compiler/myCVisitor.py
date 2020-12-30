@@ -387,7 +387,7 @@ class ToLLVMVisitor(CVisitor):
         elif len(ctx.children) == 3:
             equality_expression = self.visit(ctx.children[0])
             operator_expression = ctx.children[1]
-            if equality_expression.type == self.FLOAT_TYPE:
+            if equality_expression.type == FLOAT_TYPE:
                 # todo: fix
                 return self.builder.fcmp_ordered(cmpop=operator_expression.getText(), lhs=equality_expression
                                                  , rhs=relational_expression)
@@ -408,7 +408,7 @@ class ToLLVMVisitor(CVisitor):
         elif len(ctx.children) == 3:
             relational_expression = self.visit(ctx.children[0])
             operator_expression = ctx.children[1]
-            if relational_expression.type == self.FLOAT_TYPE:
+            if relational_expression.type == FLOAT_TYPE:
                 # todo: fix
                 # print(eval(shift_expression))
                 # shift_expression = self.builder.sitofp(shift_expression, float)
@@ -509,7 +509,7 @@ class ToLLVMVisitor(CVisitor):
                 if unary_expression_pointer is True:
                     unary_expression_pointer = unary_expression
                     unary_expression = self.builder.load(unary_expression_pointer)
-                    unary_expression = self.builder.add(unary_expression, ir.Constant(self.INT_TYPE, 1))
+                    unary_expression = self.builder.add(unary_expression, ir.Constant(INT_TYPE, 1))
                     self.builder.store(unary_expression, unary_expression_pointer)
                 return unary_expression, unary_expression_pointer
             elif operator.getText() == '--':
@@ -517,7 +517,7 @@ class ToLLVMVisitor(CVisitor):
                 if unary_expression_pointer is True:
                     unary_expression_pointer = unary_expression
                     unary_expression = self.builder.load(unary_expression_pointer)
-                    unary_expression = self.builder.sub(unary_expression, ir.Constant(self.INT_TYPE, 1))
+                    unary_expression = self.builder.sub(unary_expression, ir.Constant(INT_TYPE, 1))
                     self.builder.store(unary_expression, unary_expression_pointer)
                 return unary_expression, unary_expression_pointer
             elif operator.getText() == 'sizeof':
@@ -540,29 +540,29 @@ class ToLLVMVisitor(CVisitor):
                 elif operator.getText() == '~':
                     return self.builder.not_(unary_expression), False
                 elif operator.getText() == '!':
-                    if unary_expression.type != self.FLOAT_TYPE:
+                    if unary_expression.type != FLOAT_TYPE:
                         return self.builder.icmp_signed(cmpop='==', lhs=unary_expression
-                                                        , rhs=ir.Constant(self.INT_TYPE, 0)), False
+                                                        , rhs=ir.Constant(INT_TYPE, 0)), False
                     else:
                         return self.builder.fcmp_ordered(cmpop='==', lhs=unary_expression
-                                                         , rhs=ir.Constant(self.FLOAT_TYPE, 0)), False
+                                                         , rhs=ir.Constant(FLOAT_TYPE, 0)), False
         else:
             raise Exception()
 
     def handlePostfixExpressionInstance(self, ctx, postfix_operator):
         postfix_expression = ctx.children[0]
         identifier = ctx.children[2]
-        postfix_expression_pointer = self.symbol_table.getValue(postfix_expression.getText())
+        postfix_expression_pointer = self.symbol_table.get_value(postfix_expression.getText())
         if postfix_operator.getText() == '.':
-            identifier_index = self.struct_table.getParamIndice(postfix_expression_pointer.type.pointee.name
-                                                                , identifier.getText())
+            identifier_index = self.struct_table.get_param_indice(postfix_expression_pointer.type.pointee.name
+                                                                  , identifier.getText())
         elif postfix_operator.getText() == '->':
-            identifier_index = self.struct_table.getParamIndice(postfix_expression_pointer.type.pointee.pointee.name
-                                                                , identifier.getText())
+            identifier_index = self.struct_table.get_param_indice(postfix_expression_pointer.type.pointee.pointee.name
+                                                                  , identifier.getText())
         else:
             raise Exception()
         # constant type?
-        identifier_indices = [ir.Constant(self.INT_TYPE, 0), ir.Constant(self.INT_TYPE, identifier_index)]
+        identifier_indices = [ir.Constant(INT_TYPE, 0), ir.Constant(INT_TYPE, identifier_index)]
         return postfix_expression_pointer, identifier_indices
 
     def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
@@ -580,14 +580,14 @@ class ToLLVMVisitor(CVisitor):
                         postfix_expression_pointer = postfix_expression
                         postfix_expression = self.builder.load(postfix_expression_pointer)
                         self.builder.store(postfix_expression, postfix_expression_pointer)
-                        new_postfix_expression = self.builder.add(postfix_expression, ir.Constant(self.INT_TYPE, 1))
+                        new_postfix_expression = self.builder.add(postfix_expression, ir.Constant(INT_TYPE, 1))
                         self.builder.store(new_postfix_expression, postfix_expression_pointer)
                         return postfix_expression, postfix_expression_pointer
                     elif postfix_operator.getText() == '--':
                         postfix_expression_pointer = postfix_expression
                         postfix_expression = self.builder.load(postfix_expression_pointer)
                         self.builder.store(postfix_expression, postfix_expression_pointer)
-                        new_postfix_expression = self.builder.sub(postfix_expression, ir.Constant(self.INT_TYPE, 1))
+                        new_postfix_expression = self.builder.sub(postfix_expression, ir.Constant(INT_TYPE, 1))
                         self.builder.store(new_postfix_expression, postfix_expression_pointer)
                         return postfix_expression, postfix_expression_pointer
                     else:
@@ -619,7 +619,7 @@ class ToLLVMVisitor(CVisitor):
                         postfix_expression_pointer_type = ir.PointerType(ir.ArrayType(postfix_expression_array_type, 0))
                         postfix_expression_pointer = self.builder.bitcast(postfix_expression, postfix_expression_pointer_type)
                         postfix_expression_index = self.visit(ctx.children[2])
-                        postfix_expression_indices = [ir.Constant(self.INT_TYPE, 0), postfix_expression_index]
+                        postfix_expression_indices = [ir.Constant(INT_TYPE, 0), postfix_expression_index]
                         postfix_expression_pointer = self.builder.gep(ptr=postfix_expression_pointer, indices=postfix_expression_indices)
                         return postfix_expression_pointer, True
                     elif postfix_operator.getText() == '(':
@@ -638,27 +638,27 @@ class ToLLVMVisitor(CVisitor):
         if len(ctx.children) == 1:
             if ctx.Identifier():
                 identifier = ctx.children[0]
-                value = self.symbol_table.getValue(identifier.getText())
+                value = self.symbol_table.get_value(identifier.getText())
                 return value, True
             elif ctx.Constant():
                 constant = ctx.children[0]
                 constant_value = eval(constant.getText())
                 if constant_value.__class__ == int:
-                    return ir.Constant(self.INT_TYPE, constant_value), False
+                    return ir.Constant(INT_TYPE, constant_value), False
                 elif constant_value.__class__ == float:
-                    return ir.Constant(self.FLOAT_TYPE, constant_value), False
+                    return ir.Constant(FLOAT_TYPE, constant_value), False
                 elif constant_value.__class__ == str:
                     constant_value = ord(constant_value)
-                    return ir.Constant(self.CHAR_TYPE, constant_value), False
+                    return ir.Constant(CHAR_TYPE, constant_value), False
                 else:
                     raise Exception()
             elif ctx.StringLiteral():
                 string_literal = eval(ctx.StringLiteral()[0].getText())
-                string = [ir.Constant(self.CHAR_TYPE, ord(i)) for i in string_literal]
-                string = string + [ir.Constant(self.CHAR_TYPE, 0)]
-                string_literal_pointer = self.builder.alloca(ir.ArrayType(self.CHAR_TYPE, len(string)))
+                string = [ir.Constant(CHAR_TYPE, ord(i)) for i in string_literal]
+                string = string + [ir.Constant(CHAR_TYPE, 0)]
+                string_literal_pointer = self.builder.alloca(ir.ArrayType(CHAR_TYPE, len(string)))
                 self.builder.store(ir.Constant.literal_array(string), string_literal_pointer)
-                string_literal_pointer = self.builder.bitcast(string_literal_pointer, ir.PointerType(self.CHAR_TYPE))
+                string_literal_pointer = self.builder.bitcast(string_literal_pointer, ir.PointerType(CHAR_TYPE))
                 return string_literal_pointer, False
         elif len(ctx.children) == 3:
             if ctx.children[0] != '(' or ctx.children[2] != ')':
