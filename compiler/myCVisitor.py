@@ -1,125 +1,98 @@
-# Generated from compiler/C.g4 by ANTLR 4.9
 import re
 
-from antlr4 import *
 
-if __name__ is not None and "." in __name__:
-    from .CParser import CParser
-    from .CVisitor import CVisitor
-else:
-    from CParser import CParser
-    from CVisitor import CVisitor
-
+from .CParser import CParser
+from .CVisitor import CVisitor
+from .CType import *
+from .structTable import StructTable
+from .symbolTable import SymbolTable
+from .Errors import SemanticError, UnSupportedError
 
 from llvmlite import ir
-from .structTable import StructTable, FuncTable
-from .symbolTable import SymbolTable, createTable
 
 
-class SemanticError(Exception):
-    """语义错误基类"""
-
-    def __init__(self, msg, ctx=None):
-        super().__init__()
-        if ctx:
-            self.line = ctx.start.line  # 错误出现位置
-            self.column = ctx.start.column
-        else:
-            self.line = 0
-            self.column = 0
-        self.msg = msg
-
-    def __str__(self):
-        return "SemanticError: " + str(self.line) + ":" + str(self.column) + " " + self.msg
 
 
 class ToLLVMVisitor(CVisitor):
-    BASE_TYPE = 0
-    ARRAY_TYPE = 1
-    ARRAY_2D_TYPE = 4
-    FUNCTION_TYPE = 2
-
-    CHAR_TYPE = ir.IntType(8)
-    INT_TYPE = ir.IntType(32)
-    FLOAT_TYPE = ir.FloatType()
-    DOUBLE_TYPE = ir.DoubleType()
-    VOID_TYPE = ir.VoidType()
-    BOOL_TYPE = ir.IntType(1)
-
     def __init__(self):
+        super().__init__()
         self.module = ir.Module()
-        self.module.triple = "x86_64-pc-linux-gnu" # llvm.Target.from_default_triple()
-        self.module.data_layout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128" # llvm.create_mcjit_compiler(backing_mod, target_machine)
+        self.module.triple = "x86_64-pc-linux-gnu"
+        self.module.data_layout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 
         self.builder = None
-        self.symbol_table = SymbolTable(None)
+        self.symbol_table = SymbolTable()
         self.lst_continue = None
         self.lst_break = None
-        self.func_table = FuncTable()
         self.struct_table = StructTable()
-        self.struct_instance_ing = False  # 是否在实例化结构体
 
     def visitCompilationUnit(self, ctx):
         for i in ctx.children:
             self.visit(i)
 
     def visitFunctionDefinition(self, ctx):
-        assert ctx.declarationList() == None
-        _type = self.visit(ctx.declarationSpecifiers())
-        name, params = self.visit(ctx.declarator())
-        args = [i for i, j in params]
-        fnty = ir.FunctionType(_type, args)
-        func = ir.Function(self.module, fnty, name=name)
-        block = func.append_basic_block(name="entry")
+        # TODO: liqi
+        assert ctx.declarationList() is None
+        func_type = self.visit(ctx.declarationSpecifiers())
+        func_name, func_params = self.visit(ctx.declarator())
+
+        # TODO: ???
+        func_args = [i for i, j in func_params]
+        llvm_fnty = ir.FunctionType(func_type, func_args)
+        llvm_func = ir.Function(self.module, llvm_fnty, name=func_name)
+
+        block = llvm_func.append_basic_block(name=f"{func_name}.entry")
+
         self.builder = ir.IRBuilder(block)
-        self.symbol_table.insert(name, value=func)
-        self.symbol_table = createTable(self.symbol_table)
-        func_args = func.args
-        arg_names = [j for i, j in params]
-        assert len(arg_names) == len(func_args)
+        self.symbol_table.insert(func_name, value=llvm_func)
+        self.symbol_table = self.symbol_table.enter_scope()
+
+        func_args = llvm_func.args
+        # TODO: optim
+        arg_names = [j for i, j in func_params]
         for seq, name in enumerate(arg_names):
             arg = func_args[seq]
             arg_ptr = self.builder.alloca(arg.type, name=name)
             self.builder.store(arg, arg_ptr)
             self.symbol_table.insert(name, value=arg_ptr)
         self.visit(ctx.compoundStatement())
-        if _type == self.VOID_TYPE:
-            try:
-                self.builder.ret_void()
-            except:
-                pass
-        self.symbol_table = self.symbol_table.getFather()
+
+        if func_type == VOID_TYPE:
+            self.builder.ret_void()
+
+        self.symbol_table = self.symbol_table.leave_scope()
 
     def visitDeclarator(self, ctx: CParser.DeclaratorContext):
         return self.visit(ctx.directDeclarator())
 
     def visitDirectDeclarator(self, ctx: CParser.DirectDeclaratorContext):
+        # TODO: liqi
         if ctx.Identifier():
             name = self.visit(ctx.Identifier())
-            btype = (self.BASE_TYPE, None)
+            btype = (BASE_TYPE, None)
             self.symbol_table.insert(name, btype)
             return name
         elif ctx.children[1].getText() == '[':
             name = self.visit(ctx.directDeclarator())
-            if self.symbol_table.getType(name) is not None and self.symbol_table.getValue(name) is None:
+            if self.symbol_table.get_type(name) is not None and self.symbol_table.get_value(name) is None:
                 # 二维数组的情况
-                btype, length = self.symbol_table.getType(name)
-                if btype == self.ARRAY_TYPE:
+                btype, length = self.symbol_table.get_type(name)
+                if btype == ARRAY_TYPE:
                     first_dimension = length
                     second_dimension = self.visit(ctx.assignmentExpression())
                     dim = (first_dimension, second_dimension)
-                    btype = (self.ARRAY_2D_TYPE, dim)
+                    btype = (ARRAY_2D_TYPE, dim)
                     self.symbol_table.insert(name, btype=btype)
                     return name
 
             # 普通一维数组
             length = self.visit(ctx.assignmentExpression())
-            btype = (self.ARRAY_TYPE, length)
+            btype = (ARRAY_TYPE, length)
             self.symbol_table.insert(name, btype=btype)
             return name
         elif ctx.children[1].getText() == '(':
             name = self.visit(ctx.directDeclarator())
-            btype = (self.FUNCTION_TYPE, None)
+            btype = (FUNCTION_TYPE, None)
             self.symbol_table.insert(name, btype)
             if ctx.parameterTypeList():
                 params = self.visit(ctx.parameterTypeList())
@@ -128,62 +101,53 @@ class ToLLVMVisitor(CVisitor):
             return name, params
 
     def visitTypeSpecifier(self, ctx: CParser.TypeSpecifierContext):
+        if ctx.Void():
+            return VOID_TYPE
+        elif ctx.Char():
+            return CHAR_TYPE
+        elif ctx.Int():
+            return INT_TYPE
+        elif ctx.Float():
+            return FLOAT_TYPE
+        elif ctx.Double():
+            return DOUBLE_TYPE
         if ctx.pointer():
-            _type = self.visit(ctx.typeSpecifier())
-            return ir.PointerType(_type)
+            type = self.visit(ctx.typeSpecifier())
+            return ir.PointerType(type)
         elif ctx.structOrUnionSpecifier():
             return self.visit(ctx.structOrUnionSpecifier())
         elif ctx.typedefName():
             return self.visit(ctx.typedefName())
         else:
-            _type = {
-                'int': self.INT_TYPE,
-                'char': self.CHAR_TYPE,
-                'float': self.FLOAT_TYPE,
-                'double': self.DOUBLE_TYPE,
-                'void': self.VOID_TYPE
-            }.get(ctx.getText())
-            return _type
+            raise UnSupportedError("unsupported type", ctx)
 
     def visitStructOrUnionSpecifier(self, ctx: CParser.StructOrUnionSpecifierContext):
         if ctx.structDeclarationList():
-            # 结构本身的声明/定义
-            label_ = self.visit(ctx.structOrUnion())
-            if label_ == 'struct':
-                # 结构体
-                if ctx.Identifier():
-                    # 非匿名结构
-                    struct_name = ctx.Identifier().getText()
-                    if self.symbol_table.getValue(struct_name):
-                        # 重定义
-                        print("Redefintion error!")
-                    else:
-                        self.is_defining_struct = struct_name
-                        tmp_list = self.visit(ctx.structDeclarationList())
-                        index = 0
-                        ele_list = []
-                        param_list = []
-                        for ele in tmp_list:
-                            param_list.append(ele['name'])
-                            ele_list.append(ele['type'])
-                        new_struct = ir.global_context.get_identified_type(name=struct_name)
-                        new_struct.set_body(*ele_list)
-                        # 将struct定义插入结构体表，记录
-                        self.struct_table.insert(struct_name, new_struct, param_list)
-                        return new_struct
-        else:
-            # 结构实体的定义
-            label_ = self.visit(ctx.structOrUnion())
-            if label_ == 'struct':
-                # 结构体
-                struct_name = ctx.Identifier().getText()
+            if not ctx.Identifier():
+                raise UnSupportedError("don't support anonymous struct", ctx)
+            struct_name = ctx.Identifier().getText()
+            if self.symbol_table.get_value(struct_name):
+                raise SemanticError("redefinition", ctx)
+            else:
+                dec_list = self.visit(ctx.structDeclarationList())
+                param_list, type_list = [], []
+                for dec in dec_list:
+                    param_list.append(dec['name'])
+                    type_list.append(dec['type'])
                 new_struct = ir.global_context.get_identified_type(name=struct_name)
+                new_struct.set_body(*type_list)
+                self.struct_table.insert(struct_name, new_struct, param_list, type_list)
                 return new_struct
+        else:
+            struct_name = ctx.Identifier().getText()
+            new_struct = ir.global_context.get_identified_type(name=struct_name)
+            return new_struct
 
     def visitTypedefName(self, ctx: CParser.TypedefNameContext):
         return ctx.getText()
 
     def visitStructDeclarationList(self, ctx: CParser.StructDeclarationListContext):
+        # TODO: liqi
         if ctx.structDeclarationList():
             sub_list = self.visit(ctx.structDeclarationList())
             sub_dict = self.visit(ctx.structDeclaration())
@@ -193,6 +157,7 @@ class ToLLVMVisitor(CVisitor):
             return [self.visit(ctx.structDeclaration())]
 
     def visitStructDeclaration(self, ctx: CParser.StructDeclarationContext):
+        # TODO: liqi
         if ctx.structDeclaratorList():
             type_ = self.visit(ctx.specifierQualifierList())
             name_ = self.visit(ctx.structDeclaratorList())
@@ -206,18 +171,21 @@ class ToLLVMVisitor(CVisitor):
             return self.visit(ctx.specifierQualifierList())
 
     def visitStructDeclaratorList(self, ctx: CParser.StructDeclaratorListContext):
+        # TODO: liqi
         if not ctx.structDeclaratorList():
             return self.visit(ctx.structDeclarator())
         else:
             print("Oops, not supported in struct declarator list!")
 
     def visitStructDeclarator(self, ctx: CParser.StructDeclaratorContext):
+        # TODO: liqi
         if len(ctx.children) == 1:
             return self.visit(ctx.declarator())
         else:
             print("Oops, not supported in struct declarator!")
 
     def visitSpecifierQualifierList(self, ctx: CParser.SpecifierQualifierListContext):
+        # TODO: liqi
         if ctx.typeQualifier():
             print("typeQualifier not supported yet!")
         if not ctx.specifierQualifierList():
@@ -237,6 +205,7 @@ class ToLLVMVisitor(CVisitor):
         return self.visit(ctx.children[0])
 
     def visitDeclaration(self, ctx):
+        # TODO: liqi
         _type = self.visit(ctx.declarationSpecifiers())
         # if type(_type)==ir.types.IdentifiedStructType:
         #     # 如果是结构体，就没有初始化值操作。结构体定义在declarationSpecifiers中。
@@ -255,12 +224,12 @@ class ToLLVMVisitor(CVisitor):
                 args = [i for i, j in params]
                 fnty = ir.FunctionType(_type, args, var_arg=True)
                 func = ir.Function(self.module, fnty, name=name)
-                _type2 = self.symbol_table.getType(name)
+                _type2 = self.symbol_table.get_type(name)
                 self.symbol_table.insert(name, btype=_type2, value=func)
                 continue
             elif type(_type) == ir.types.IdentifiedStructType:
                 # 结构体实例化，不需要初始值设定
-                ptr_struct = self.struct_table.getPtr(_type.name)
+                ptr_struct = self.struct_table.get_ptr(_type.name)
                 # 从结构体表获取定义
                 ptr_struct_instance_ = self.builder.alloca(ptr_struct)
                 # 结构体实例化，分配内存
@@ -268,8 +237,8 @@ class ToLLVMVisitor(CVisitor):
                 # 存入符号表，先记录struct类型指针，再记录当前实例化指针
                 continue
 
-            _type2 = self.symbol_table.getType(name)
-            if _type2[0] == self.ARRAY_TYPE:
+            _type2 = self.symbol_table.get_type(name)
+            if _type2[0] == ARRAY_TYPE:
                 # 1D数组类型
                 length = _type2[1]
                 arr_type = ir.ArrayType(_type, length.constant)
@@ -295,7 +264,7 @@ class ToLLVMVisitor(CVisitor):
                 temp = temp_ptr
                 self.symbol_table.insert(name, btype=_type2, value=temp)
 
-            elif _type2[0] == self.ARRAY_2D_TYPE:
+            elif _type2[0] == ARRAY_2D_TYPE:
                 # 2D数组类型
                 dim = _type2[1]
                 first_dim = dim[0]
@@ -309,7 +278,7 @@ class ToLLVMVisitor(CVisitor):
                 for i in range(first_dim_c):
                     temp = self.builder.alloca(inner_arr_type)  # int **
                     temp = self.builder.bitcast(temp, ir.PointerType(_type))  # int *
-                    indices = [ir.Constant(self.INT_TYPE, 0), ir.Constant(self.INT_TYPE, i)]
+                    indices = [ir.Constant(INT_TYPE, 0), ir.Constant(INT_TYPE, i)]
                     ptr = self.builder.gep(ptr=outer_arr, indices=indices)
                     self.builder.store(temp, ptr)
                 temp = self.builder.bitcast(outer_arr, ir.PointerType(for_outer_type))
@@ -442,9 +411,9 @@ class ToLLVMVisitor(CVisitor):
             rhs = self.visit(ctx.shiftExpression())
             op = ctx.children[1].getText()
             converted_target = lhs.type
-            if rhs.type == self.INT_TYPE or rhs.type == self.CHAR_TYPE:
+            if rhs.type == INT_TYPE or rhs.type == CHAR_TYPE:
                 return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs)
-            elif rhs.type == self.FLOAT_TYPE:
+            elif rhs.type == FLOAT_TYPE:
                 return self.builder.fcmp_signed(cmpop=op, lhs=lhs, rhs=rhs)
             else:
                 print("unknown type")
@@ -526,7 +495,7 @@ class ToLLVMVisitor(CVisitor):
             if pt:
                 pt = val
                 val = self.builder.load(pt)
-                new_val = self.builder.add(val, ir.Constant(self.INT_TYPE, 1))
+                new_val = self.builder.add(val, ir.Constant(INT_TYPE, 1))
                 self.builder.store(new_val, pt)
                 return new_val, pt
             else:
@@ -537,7 +506,7 @@ class ToLLVMVisitor(CVisitor):
             if pt:
                 pt = val
                 val = self.builder.load(pt)
-                new_val = self.builder.add(val, ir.Constant(self.INT_TYPE, -1))
+                new_val = self.builder.add(val, ir.Constant(INT_TYPE, -1))
                 self.builder.store(new_val, pt)
                 return new_val, pt
             else:
@@ -562,7 +531,7 @@ class ToLLVMVisitor(CVisitor):
             var = self.builder.bitcast(var, arr_type)
             # 获取 index 并构造 indices
             index = self.visit(ctx.expression())
-            indices = [ir.Constant(self.INT_TYPE, 0), index]
+            indices = [ir.Constant(INT_TYPE, 0), index]
             # 取值
             ptr = self.builder.gep(ptr=var, indices=indices)
             return ptr, True
@@ -578,20 +547,20 @@ class ToLLVMVisitor(CVisitor):
             elif ctx.children[1].getText() == '.':
                 struct_instance_ptr_name = ctx.postfixExpression().getText()
                 param_name = ctx.Identifier().getText()
-                struct_instance_ptr = self.symbol_table.getValue(struct_instance_ptr_name)
+                struct_instance_ptr = self.symbol_table.get_value(struct_instance_ptr_name)
                 struct_type_name = struct_instance_ptr.type.pointee.name
-                indice_ = self.struct_table.getParamIndice(struct_type_name, param_name)
+                indice_ = self.struct_table.get_param_indice(struct_type_name, param_name)
                 indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), indice_)]
                 ptr = self.builder.gep(ptr=struct_instance_ptr, indices=indices)
                 return ptr, True
             elif ctx.children[1].getText() == '->':
                 struct_instance_ptr_name = ctx.postfixExpression().getText()
                 param_name = ctx.Identifier().getText()
-                struct_instance_ptr = self.symbol_table.getValue(struct_instance_ptr_name)
+                struct_instance_ptr = self.symbol_table.get_value(struct_instance_ptr_name)
                 struct_type_name = struct_instance_ptr.type.pointee.pointee.name
                 new_ptr = self.builder.load(struct_instance_ptr)
                 # 先将结构体指针load为结构体
-                indice_ = self.struct_table.getParamIndice(struct_type_name, param_name)
+                indice_ = self.struct_table.get_param_indice(struct_type_name, param_name)
                 indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), indice_)]
                 ptr = self.builder.gep(ptr=new_ptr, indices=indices)
                 return ptr, True
@@ -602,28 +571,28 @@ class ToLLVMVisitor(CVisitor):
         # TODO: dingyifeng
         _str = ctx.getText()
         if ctx.Identifier():
-            rhs = self.symbol_table.getValue(ctx.Identifier().getText())
+            rhs = self.symbol_table.get_value(ctx.Identifier().getText())
             return rhs, True
         if ctx.Constant():
             _str = ctx.Constant().getText()
             val = eval(_str)
             if val.__class__ == int:
-                return ir.Constant(self.INT_TYPE, val), False
+                return ir.Constant(INT_TYPE, val), False
             elif val.__class__ == float:
-                return ir.Constant(self.FLOAT_TYPE, val), False
+                return ir.Constant(FLOAT_TYPE, val), False
             elif val.__class__ == str:
                 val = ord(val)
-                return ir.Constant(self.CHAR_TYPE, val), False
+                return ir.Constant(CHAR_TYPE, val), False
             else:
                 raise Exception()
         elif ctx.StringLiteral():
             _str = eval(ctx.StringLiteral()[0].getText())
-            _str_array = [ir.Constant(self.CHAR_TYPE, ord(i)) for i in _str] + [ir.Constant(self.CHAR_TYPE, 0)]
+            _str_array = [ir.Constant(CHAR_TYPE, ord(i)) for i in _str] + [ir.Constant(CHAR_TYPE, 0)]
             temp = ir.Constant.literal_array(_str_array)
-            arr_type = ir.ArrayType(self.CHAR_TYPE, len(_str_array))
+            arr_type = ir.ArrayType(CHAR_TYPE, len(_str_array))
             ptr = self.builder.alloca(arr_type)
             self.builder.store(temp, ptr)
-            ptr = self.builder.bitcast(ptr, ir.PointerType(self.CHAR_TYPE))
+            ptr = self.builder.bitcast(ptr, ir.PointerType(CHAR_TYPE))
             return ptr, False
         elif ctx.expression():
             print("pppp")
@@ -670,7 +639,7 @@ class ToLLVMVisitor(CVisitor):
             return self.visit(ctx.initializerList())
 
     def visitJumpStatement(self, ctx):
-        # xuyihao
+        # TODO: xuyihao
         if ctx.Return():
             if ctx.expression():
                 _value = self.visit(ctx.expression())
@@ -696,10 +665,10 @@ class ToLLVMVisitor(CVisitor):
                 raise Exception()
 
     def visitIterationStatement(self, ctx: CParser.IterationStatementContext):
-        # xuyihao
+        # TODO: xuyihao
         if ctx.While():
             block_name = self.builder.block.name
-            self.symbol_table = createTable(self.symbol_table)
+            self.symbol_table = self.symbol_table.enter_scope()
             init_block = self.builder.append_basic_block(name='{}.init'.format(block_name))
             do_block = self.builder.append_basic_block(name='{}.do'.format(block_name))
             end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
@@ -720,12 +689,12 @@ class ToLLVMVisitor(CVisitor):
                 pass
             self.builder.position_at_start(end_block)
             self.lst_continue, self.lst_break = lst_continue, lst_break
-            self.symbol_table = self.symbol_table.getFather()
+            self.symbol_table = self.symbol_table.leave_scope()
         elif ctx.Do():
             pass
         elif ctx.For():
             block_name = self.builder.block.name
-            self.symbol_table = createTable(self.symbol_table)
+            self.symbol_table = self.symbol_table.enter_scope()
             init_block = self.builder.append_basic_block(name='{}.init'.format(block_name))
             cond_block = self.builder.append_basic_block(name='{}.cond'.format(block_name))
             do_block = self.builder.append_basic_block(name='{}.do'.format(block_name))
@@ -749,20 +718,20 @@ class ToLLVMVisitor(CVisitor):
                 pass
             self.builder.position_at_start(end_block)
             self.lst_continue, self.lst_break = lst_continue, lst_break
-            self.symbol_table = self.symbol_table.getFather()
+            self.symbol_table = self.symbol_table.leave_scope()
 
     def visitForCondition(self, ctx: CParser.ForConditionContext):
-        # xuyihao
+        # TODO: xuyihao
         self.visit(ctx.forDeclaration())
         return ctx.forExpression(0), ctx.forExpression(1)
 
     def visitForDeclaration(self, ctx: CParser.ForDeclarationContext):
-        # xuyihao
+        # TODO: xuyihao
         _type = self.visit(ctx.declarationSpecifiers())
         declarator_list = self.visit(ctx.initDeclaratorList())
         for name, init_val in declarator_list:
-            _type2 = self.symbol_table.getType(name)
-            if _type2[0] == self.ARRAY_TYPE:
+            _type2 = self.symbol_table.get_type(name)
+            if _type2[0] == ARRAY_TYPE:
                 # 数组类型
                 length = _type2[1]
                 arr_type = ir.ArrayType(_type, length.constant)
@@ -798,7 +767,7 @@ class ToLLVMVisitor(CVisitor):
                 self.symbol_table.insert(name, btype=_type2, value=temp)
 
     def visitSelectionStatement(self, ctx: CParser.SelectionStatementContext):
-        # xuyihao
+        # TODO: xuyihao
         if ctx.If():
             branches = ctx.statement()
             if len(branches) == 2:  # 存在else if/else语句
@@ -815,17 +784,17 @@ class ToLLVMVisitor(CVisitor):
                 expr_val = self.visit(ctx.expression())
                 self.builder.cbranch(expr_val, then_block, else_block)
                 self.builder.position_at_start(then_block)
-                self.symbol_table = createTable(self.symbol_table)
+                self.symbol_table = self.symbol_table.enter_scope()
                 self.visit(branches[0])
-                self.symbol_table = self.symbol_table.getFather()
+                self.symbol_table = self.symbol_table.leave_scope()
                 try:
                     self.builder.branch(end_block)
                 except:
                     pass
                 self.builder.position_at_start(else_block)
-                self.symbol_table = createTable(self.symbol_table)
+                self.symbol_table = self.symbol_table.enter_scope()
                 self.visit(branches[1])
-                self.symbol_table = self.symbol_table.getFather()
+                self.symbol_table = self.symbol_table.leave_scope()
                 try:
                     self.builder.branch(end_block)
                 except:
@@ -844,9 +813,9 @@ class ToLLVMVisitor(CVisitor):
                 expr_val = self.visit(ctx.expression())
                 self.builder.cbranch(expr_val, then_block, end_block)
                 self.builder.position_at_start(then_block)
-                self.symbol_table = createTable(self.symbol_table)
+                self.symbol_table = self.symbol_table.enter_scope()
                 self.visit(branches[0])
-                self.symbol_table = self.symbol_table.getFather()
+                self.symbol_table = self.symbol_table.leave_scope()
                 try:
                     self.builder.branch(end_block)
                 except:
@@ -857,31 +826,27 @@ class ToLLVMVisitor(CVisitor):
         return node.getText()
 
     def visitInitializerList(self, ctx: CParser.InitializerListContext):
+        # TODO: liqi
         ans = [self.visit(ctx.initializer())]
         if ctx.initializerList():
             ans = self.visit(ctx.initializerList()) + ans
         return ans
 
-    def visitParameterTypeList(self, ctx: CParser.ParameterTypeListContext):
+    def visitParameterTypeList(self, ctx: CParser.ParameterTypeListContext):  # DONE
         if ctx.parameterList():
             return self.visit(ctx.parameterList())
 
-    def visitParameterList(self, ctx: CParser.ParameterListContext):
-        if ctx.parameterList():
-            _param_list = self.visit(ctx.parameterList())
-        else:
-            _param_list = []
-        _param_decl = self.visit(ctx.parameterDeclaration())
-        _param_list.append(_param_decl)
-        return _param_list
+    def visitParameterList(self, ctx: CParser.ParameterListContext):  # DONE
+        param_list = self.visit(ctx.parameterList()) if ctx.parameterList() else []
+        new_param = self.visit(ctx.parameterDeclaration())
+        param_list.append(new_param)
+        return param_list
 
-    def visitParameterDeclaration(self, ctx: CParser.ParameterDeclarationContext):
-        _type = self.visit(ctx.declarationSpecifiers())
-        _name = self.visit(ctx.declarator())
-        return _type, _name
+    def visitParameterDeclaration(self, ctx: CParser.ParameterDeclarationContext):  # DONE
+        return [self.visit(ctx.declarationSpecifiers()), self.visit(ctx.declarator())]
 
     def output(self):
-        """返回代码"""
         return repr(self.module)
+
 
 del CParser

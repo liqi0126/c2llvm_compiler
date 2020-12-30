@@ -1,58 +1,35 @@
-def createTable(currentTable=None):
-    newTable = SymbolTable(currentTable)
-    currentTable.addChild(newTable)
-    return newTable
-BASE_TYPE = 0
-ARRAY_TYPE = 1
-FUNCTION_TYPE = 2
+from .CType import *
 
 class SymbolTable:
-    def __init__(self, father):
+    def __init__(self, father=None):
         self.symbol_list = {}
         self.value_list = {}
-        self.children = []
+        self.children = None
         self.father = father
 
-    def addChild(self, child):
-        self.children.append(child)
+    def enter_scope(self):
+        self.children = SymbolTable(self)
+        return self.children
 
-    def getFather(self):
+    def leave_scope(self):
         return self.father
 
-    def getType(self, name):
-        if name not in self.symbol_list.keys():
-            if self.father:
-                return self.father.getType(name)
-            else:
-                return None
-        return self.symbol_list[name]
+    def get_type(self, name):
+        if name in self.symbol_list:
+            return self.symbol_list[name]
+        if self.father:
+            return self.father.get_type(name)
+        else:
+            return None
 
-    def getValue(self, name):
-        if name not in self.value_list.keys():
-            if self.father:
-                return self.father.getValue(name)
-            else:
-                return None
-        return self.value_list[name]
+    def get_value(self, name):
+        if name in self.value_list:
+            return self.value_list[name]
+        if self.father:
+            return self.father.get_value(name)
+        else:
+            return None
 
     def insert(self, name, btype=BASE_TYPE, value=None):
-        '''
-
-        :param name:
-        :param btype: 一般不需要
-        :param value: 指针
-        :return:
-        '''
         self.symbol_list[name] = btype
         self.value_list[name] = value
-
-
-class ArrayType:
-    def __init__(self):
-        self.length = 0
-        self.child_type = None
-
-
-class BasicType:
-    def __init__(self):
-        self.llvm_type = None
