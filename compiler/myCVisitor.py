@@ -11,8 +11,6 @@ from .Errors import SemanticError, UnSupportedError
 from llvmlite import ir
 
 
-
-
 class ToLLVMVisitor(CVisitor):
     def __init__(self):
         super().__init__()
@@ -26,81 +24,61 @@ class ToLLVMVisitor(CVisitor):
         self.lst_break = None
         self.struct_table = StructTable()
 
-    def visitCompilationUnit(self, ctx):
+    # help function
+    def pos(self, ctx):
+        return f'{ctx.start.line}: {ctx.start.column}'
+
+    def visitCompilationUnit(self, ctx):  # DONE
         for i in ctx.children:
             self.visit(i)
 
-    def visitFunctionDefinition(self, ctx):
-        # TODO: liqi
-        assert ctx.declarationList() is None
+    def visitFunctionDefinition(self, ctx):  # DONE
         func_type = self.visit(ctx.declarationSpecifiers())
         func_name, func_params = self.visit(ctx.declarator())
 
-        # TODO: ???
-        func_args = [i for i, j in func_params]
-        llvm_fnty = ir.FunctionType(func_type, func_args)
+        llvm_fnty = ir.FunctionType(func_type, [arg for arg, _ in func_params])
         llvm_func = ir.Function(self.module, llvm_fnty, name=func_name)
 
         block = llvm_func.append_basic_block(name=f"{func_name}.entry")
 
         self.builder = ir.IRBuilder(block)
         self.symbol_table.insert(func_name, value=llvm_func)
+
         self.symbol_table = self.symbol_table.enter_scope()
 
-        func_args = llvm_func.args
-        # TODO: optim
-        arg_names = [j for i, j in func_params]
-        for seq, name in enumerate(arg_names):
-            arg = func_args[seq]
+        arg_names = [name for _, name in func_params]
+        for arg, name in zip(llvm_func.args, arg_names):
             arg_ptr = self.builder.alloca(arg.type, name=name)
             self.builder.store(arg, arg_ptr)
             self.symbol_table.insert(name, value=arg_ptr)
-        self.visit(ctx.compoundStatement())
 
+        self.visit(ctx.compoundStatement())
         if func_type == VOID_TYPE:
             self.builder.ret_void()
 
         self.symbol_table = self.symbol_table.leave_scope()
 
-    def visitDeclarator(self, ctx: CParser.DeclaratorContext):
+    def visitDeclarator(self, ctx: CParser.DeclaratorContext):  # DONE
         return self.visit(ctx.directDeclarator())
 
-    def visitDirectDeclarator(self, ctx: CParser.DirectDeclaratorContext):
-        # TODO: liqi
+    def visitDirectDeclarator(self, ctx: CParser.DirectDeclaratorContext):  # DONE
+        name = self.visit(ctx.getChild(0))
         if ctx.Identifier():
-            name = self.visit(ctx.Identifier())
-            btype = (BASE_TYPE, None)
-            self.symbol_table.insert(name, btype)
+            self.symbol_table.insert(name, (BASE_TYPE, None))
             return name
         elif ctx.children[1].getText() == '[':
-            name = self.visit(ctx.directDeclarator())
-            if self.symbol_table.get_type(name) is not None and self.symbol_table.get_value(name) is None:
-                # 二维数组的情况
-                btype, length = self.symbol_table.get_type(name)
-                if btype == ARRAY_TYPE:
-                    first_dimension = length
-                    second_dimension = self.visit(ctx.assignmentExpression())
-                    dim = (first_dimension, second_dimension)
-                    btype = (ARRAY_2D_TYPE, dim)
-                    self.symbol_table.insert(name, btype=btype)
-                    return name
-
-            # 普通一维数组
+            # TODO: 2-dim vector
             length = self.visit(ctx.assignmentExpression())
             btype = (ARRAY_TYPE, length)
             self.symbol_table.insert(name, btype=btype)
             return name
         elif ctx.children[1].getText() == '(':
-            name = self.visit(ctx.directDeclarator())
             btype = (FUNCTION_TYPE, None)
             self.symbol_table.insert(name, btype)
-            if ctx.parameterTypeList():
-                params = self.visit(ctx.parameterTypeList())
-            else:
-                params = []
+            params = self.visit(ctx.parameterTypeList()) if ctx.parameterTypeList() else []
             return name, params
 
-    def visitTypeSpecifier(self, ctx: CParser.TypeSpecifierContext):
+    def visitTypeSpecifier(self, ctx: CParser.TypeSpecifierContext):  # DONE
         if ctx.Void():
             return VOID_TYPE
         elif ctx.Char():
@@ -121,7 +99,7 @@ class ToLLVMVisitor(CVisitor):
         else:
             raise UnSupportedError("unsupported type", ctx)
 
-    def visitStructOrUnionSpecifier(self, ctx: CParser.StructOrUnionSpecifierContext):
+    def visitStructOrUnionSpecifier(self, ctx: CParser.StructOrUnionSpecifierContext):   # DONE
         if ctx.structDeclarationList():
             if not ctx.Identifier():
                 raise UnSupportedError("don't support anonymous struct", ctx)
@@ -143,160 +121,115 @@ class ToLLVMVisitor(CVisitor):
             new_struct = ir.global_context.get_identified_type(name=struct_name)
             return new_struct
 
-    def visitTypedefName(self, ctx: CParser.TypedefNameContext):
+    def visitTypedefName(self, ctx: CParser.TypedefNameContext):  # DONE
         return ctx.getText()
 
-    def visitStructDeclarationList(self, ctx: CParser.StructDeclarationListContext):
-        # TODO: liqi
-        if ctx.structDeclarationList():
-            sub_list = self.visit(ctx.structDeclarationList())
-            sub_dict = self.visit(ctx.structDeclaration())
-            sub_list.append(sub_dict)
-            return sub_list
-        else:
-            return [self.visit(ctx.structDeclaration())]
+    def visitStructDeclarationList(self, ctx: CParser.StructDeclarationListContext):  # DONE
+        dec_list = self.visit(ctx.structDeclarationList()) if ctx.structDeclarationList() else []
+        dec_list.append(self.visit(ctx.structDeclaration()))
+        return dec_list
 
-    def visitStructDeclaration(self, ctx: CParser.StructDeclarationContext):
-        # TODO: liqi
+    def visitStructDeclaration(self, ctx: CParser.StructDeclarationContext):  # DONE
         if ctx.structDeclaratorList():
-            type_ = self.visit(ctx.specifierQualifierList())
-            name_ = self.visit(ctx.structDeclaratorList())
-            # return ir.ArrayType(type_,len_)
-            str___ = ctx.structDeclaratorList().getText()
-            len_ = int(re.findall(r'\d+', str___)[0])
-            return {"type": ir.ArrayType(type_, len_), "name": name_}
-        elif ctx.staticAssertDeclaration():
-            print("Oops, not supported yet!")
+            # TODO: what's this?
+            raise UnSupportedError("unsupported structDeclaratorList yet", ctx)
+            # struct_type = self.visit(ctx.specifierQualifierList())
+            # struct_name = self.visit(ctx.structDeclaratorList())
+            # str___ = ctx.structDeclaratorList().getText()
+            # len_ = int(re.findall(r'\d+', str___)[0])
+            # return {"type": ir.ArrayType(type_, len_), "name": name_}
         else:
             return self.visit(ctx.specifierQualifierList())
 
-    def visitStructDeclaratorList(self, ctx: CParser.StructDeclaratorListContext):
-        # TODO: liqi
-        if not ctx.structDeclaratorList():
-            return self.visit(ctx.structDeclarator())
-        else:
-            print("Oops, not supported in struct declarator list!")
+    def visitStructDeclaratorList(self, ctx: CParser.StructDeclaratorListContext):  # DONE
+        if ctx.structDeclaratorList():
+            raise UnSupportedError("unsupported multiple struct declarator", ctx)
+        return self.visit(ctx.structDeclarator())
 
-    def visitStructDeclarator(self, ctx: CParser.StructDeclaratorContext):
-        # TODO: liqi
-        if len(ctx.children) == 1:
-            return self.visit(ctx.declarator())
-        else:
-            print("Oops, not supported in struct declarator!")
+    def visitStructDeclarator(self, ctx: CParser.StructDeclaratorContext):   # DONE
+        if ctx.constantExpression():
+            raise UnSupportedError("unsupported constant expression", ctx)
+        return self.visit(ctx.declarator())
 
-    def visitSpecifierQualifierList(self, ctx: CParser.SpecifierQualifierListContext):
+    def visitSpecifierQualifierList(self, ctx: CParser.SpecifierQualifierListContext):  # DONE
         # TODO: liqi
         if ctx.typeQualifier():
-            print("typeQualifier not supported yet!")
+            raise UnSupportedError("typeQualifier not supported yet!", ctx)
         if not ctx.specifierQualifierList():
             return self.visit(ctx.typeSpecifier())
         else:
-            sub_dict = {'type': self.visit(ctx.children[0]),
-                        'name': self.visit(ctx.children[1])}
-            return sub_dict
+            return {'type': self.visit(ctx.children[0]),
+                    'name': self.visit(ctx.children[1])}
 
-    def visitStructOrUnion(self, ctx: CParser.StructOrUnionContext):
+    def visitStructOrUnion(self, ctx: CParser.StructOrUnionContext):   # DONE
         return ctx.getText()
 
-    def visitDeclarationSpecifiers(self, ctx):
+    def visitDeclarationSpecifiers(self, ctx):  # DONE
         return self.visit(ctx.children[-1])
 
-    def visitDeclarationSpecifier(self, ctx: CParser.DeclarationSpecifierContext):
+    def visitDeclarationSpecifier(self, ctx: CParser.DeclarationSpecifierContext):  # DONE
         return self.visit(ctx.children[0])
 
-    def visitDeclaration(self, ctx):
-        # TODO: liqi
+    def visitDeclaration(self, ctx):  # DONE
         _type = self.visit(ctx.declarationSpecifiers())
-        # if type(_type)==ir.types.IdentifiedStructType:
-        #     # 如果是结构体，就没有初始化值操作。结构体定义在declarationSpecifiers中。
-        #     if ctx.initDeclaratorList():
-        #         print("xxx:",ctx.initDeclaratorList().getText())
-        #     return ''
         if not ctx.initDeclaratorList():
             return ''
+
         declarator_list = self.visit(ctx.initDeclaratorList())
         for name, init_val in declarator_list:
+
+            # system function declaration
             if isinstance(name, tuple):
-                # 函数类型
-                _func = name
-                name = _func[0]
-                params = _func[1]
-                args = [i for i, j in params]
+                func_name, func_params = name
+                args = [arg for arg, _ in func_params]
                 fnty = ir.FunctionType(_type, args, var_arg=True)
-                func = ir.Function(self.module, fnty, name=name)
-                _type2 = self.symbol_table.get_type(name)
-                self.symbol_table.insert(name, btype=_type2, value=func)
+                func = ir.Function(self.module, fnty, name=func_name)
+                self.symbol_table.insert(func_name, btype=(FUNCTION_TYPE, None), value=func)
                 continue
+            # struct declaration
             elif type(_type) == ir.types.IdentifiedStructType:
-                # 结构体实例化，不需要初始值设定
                 ptr_struct = self.struct_table.get_ptr(_type.name)
-                # 从结构体表获取定义
-                ptr_struct_instance_ = self.builder.alloca(ptr_struct)
-                # 结构体实例化，分配内存
-                self.symbol_table.insert(name, value=ptr_struct_instance_)
-                # 存入符号表，先记录struct类型指针，再记录当前实例化指针
+                self.symbol_table.insert(name, btype=(STRUCT_TYPE, None), value=self.builder.alloca(ptr_struct))
                 continue
 
-            _type2 = self.symbol_table.get_type(name)
-            if _type2[0] == ARRAY_TYPE:
-                # 1D数组类型
-                length = _type2[1]
+            myType = self.symbol_table.get_type(name)
+            # array declaration
+            if myType[0] == ARRAY_TYPE:
+                length = myType[1]
                 arr_type = ir.ArrayType(_type, length.constant)
+
                 if self.builder:
-                    temp = self.builder.alloca(arr_type, name=name)
-                    if init_val:
-                        # 有初值
-                        l = len(init_val)
-                        if l > length.constant:
-                            # 数组过大
-                            return
-                        for i in range(l):
-                            indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
-                            ptr = self.builder.gep(ptr=temp, indices=indices)
-                            self.builder.store(init_val[i], ptr)
-
+                    value = self.builder.alloca(arr_type, name=name)
                 else:
-                    temp = ir.GlobalValue(self.module, arr_type, name=name)
-                # 保存指针
-                temp = self.builder.bitcast(temp, ir.PointerType(_type))
-                temp_ptr = self.builder.alloca(temp.type)
-                self.builder.store(temp, temp_ptr)
-                temp = temp_ptr
-                self.symbol_table.insert(name, btype=_type2, value=temp)
+                    value = ir.GlobalValue(self.module, arr_type, name=name)
 
-            elif _type2[0] == ARRAY_2D_TYPE:
-                # 2D数组类型
-                dim = _type2[1]
-                first_dim = dim[0]
-                second_dim = dim[1]
-                first_dim_c = first_dim.constant
-                second_dim_c = second_dim.constant
-                inner_arr_type = ir.ArrayType(_type, second_dim_c)  # int *
-                for_outer_type = ir.PointerType(_type)  # int *
-                arr_type = ir.ArrayType(for_outer_type, first_dim_c)  # int **
-                outer_arr = self.builder.alloca(arr_type, name=name)  # int ***
-                for i in range(first_dim_c):
-                    temp = self.builder.alloca(inner_arr_type)  # int **
-                    temp = self.builder.bitcast(temp, ir.PointerType(_type))  # int *
-                    indices = [ir.Constant(INT_TYPE, 0), ir.Constant(INT_TYPE, i)]
-                    ptr = self.builder.gep(ptr=outer_arr, indices=indices)
-                    self.builder.store(temp, ptr)
-                temp = self.builder.bitcast(outer_arr, ir.PointerType(for_outer_type))
-                temp_ptr = self.builder.alloca(temp.type)
-                self.builder.store(temp, temp_ptr)
-                self.symbol_table.insert(name, btype=_type2, value=temp_ptr)
+                if init_val:
+                    l = len(init_val)
+                    if l > length.constant:
+                        raise SemanticError("length of initialization exceed length of array")
 
+                    for i in range(l):
+                        indices = [ir.Constant(INT_TYPE, 0), ir.Constant(INT_TYPE, i)]
+                        ptr = self.builder.gep(ptr=value, indices=indices)
+                        self.builder.store(init_val[i], ptr)
+
+                # save pointer
+                value = self.builder.bitcast(value, ir.PointerType(_type))
+                temp_ptr = self.builder.alloca(value.type)
+                self.builder.store(value, temp_ptr)
+                value = temp_ptr
+                self.symbol_table.insert(name, btype=myType, value=value)
+            # normal declaration
             else:
-                # 普通变量
                 if self.builder:
-                    temp = self.builder.alloca(_type, size=1, name=name)
-                    if init_val:
-                        self.builder.store(init_val, temp)
+                    value = self.builder.alloca(_type, name=name)
                 else:
-                    temp = ir.GlobalValue(self.module, _type, name=name)
+                    value = ir.GlobalValue(self.module, _type, name=name)
+#
+                if init_val:
+                    self.builder.store(init_val, value)
 
-                # 保存指针
-                self.symbol_table.insert(name, btype=_type2, value=temp)
+                self.symbol_table.insert(name, btype=myType, value=value)
 
     def visitAssignmentExpression(self, ctx: CParser.AssignmentExpressionContext):
         # TODO: dingyifeng
@@ -601,42 +534,57 @@ class ToLLVMVisitor(CVisitor):
         else:
             print("Oops, not supported in primary expression")
 
-    def visitArgumentExpressionList(self, ctx: CParser.ArgumentExpressionListContext):
-        if not ctx.argumentExpressionList():
-            return [self.visit(ctx.assignmentExpression())]
 
-        _args = self.visit(ctx.argumentExpressionList())
-        _args.append(self.visit(ctx.assignmentExpression()))
-        return _args
+    def visitArgumentExpressionList(self, ctx: CParser.ArgumentExpressionListContext):  # DONE
+        args_list = self.visit(ctx.argumentExpressionList()) if ctx.argumentExpressionList() else []
+        args_list += [self.visit(ctx.assignmentExpression())]
+        return args_list
 
     def visitCompoundStatement(self, ctx):
         for i in ctx.children:
             self.visit(i)
 
-    def visitBlockItem(self, ctx):
-        if ctx.statement():
-            return self.visit(ctx.statement())
-        return self.visit(ctx.declaration())
+    def visitBlockItem(self, ctx):  # DONE
+        return self.visit(ctx.getChild(0))
 
-    def visitInitDeclaratorList(self, ctx):
-        declarator_list = []
-        declarator_list.append(self.visit(ctx.initDeclarator()))
-        if ctx.initDeclaratorList():
-            declarator_list += self.visit(ctx.initDeclaratorList())
-        return declarator_list
+    def visitInitDeclaratorList(self, ctx):  # DONE
+        dec_list = self.visit(ctx.initDeclaratorList()) if ctx.initDeclaratorList() else []
+        dec_list.append(self.visit(ctx.initDeclarator()))
+        return dec_list
 
-    def visitInitDeclarator(self, ctx):
+    def visitInitDeclarator(self, ctx):   # DONE
         if ctx.initializer():
-            declarator = (self.visit(ctx.declarator()), self.visit(ctx.initializer()))
+            return self.visit(ctx.declarator()), self.visit(ctx.initializer())
         else:
-            declarator = (self.visit(ctx.declarator()), None)
-        return declarator
+            return self.visit(ctx.declarator()), None
 
-    def visitInitializer(self, ctx):
+    def visitInitializer(self, ctx):   # DONE
         if ctx.assignmentExpression():
             return self.visit(ctx.assignmentExpression())
         elif ctx.initializerList():
             return self.visit(ctx.initializerList())
+
+    def visitInitializerList(self, ctx: CParser.InitializerListContext):  # DONE
+        init_list = [self.visit(ctx.initializer())]
+        if ctx.initializerList():
+            init_list = self.visit(ctx.initializerList()) + init_list
+        return init_list
+
+    def visitParameterTypeList(self, ctx: CParser.ParameterTypeListContext):  # DONE
+        if ctx.parameterList():
+            return self.visit(ctx.parameterList())
+
+    def visitParameterList(self, ctx: CParser.ParameterListContext):  # DONE
+        param_list = self.visit(ctx.parameterList()) if ctx.parameterList() else []
+        new_param = self.visit(ctx.parameterDeclaration())
+        param_list.append(new_param)
+        return param_list
+
+    def visitParameterDeclaration(self, ctx: CParser.ParameterDeclarationContext):  # DONE
+        return [self.visit(ctx.declarationSpecifiers()), self.visit(ctx.declarator())]
+
+    def visitTerminal(self, node):  # DONE
+        return node.getText()
 
     def visitJumpStatement(self, ctx):
         # TODO: xuyihao
@@ -856,29 +804,6 @@ class ToLLVMVisitor(CVisitor):
 
                 self.symbol_table.leave_scope()
 
-
-    def visitTerminal(self, node):
-        return node.getText()
-
-    def visitInitializerList(self, ctx: CParser.InitializerListContext):
-        # TODO: liqi
-        ans = [self.visit(ctx.initializer())]
-        if ctx.initializerList():
-            ans = self.visit(ctx.initializerList()) + ans
-        return ans
-
-    def visitParameterTypeList(self, ctx: CParser.ParameterTypeListContext):  # DONE
-        if ctx.parameterList():
-            return self.visit(ctx.parameterList())
-
-    def visitParameterList(self, ctx: CParser.ParameterListContext):  # DONE
-        param_list = self.visit(ctx.parameterList()) if ctx.parameterList() else []
-        new_param = self.visit(ctx.parameterDeclaration())
-        param_list.append(new_param)
-        return param_list
-
-    def visitParameterDeclaration(self, ctx: CParser.ParameterDeclarationContext):  # DONE
-        return [self.visit(ctx.declarationSpecifiers()), self.visit(ctx.declarator())]
 
     def output(self):
         return repr(self.module)
