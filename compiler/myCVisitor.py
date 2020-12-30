@@ -757,7 +757,7 @@ class ToLLVMVisitor(CVisitor):
             raise SemanticError("No way to continue!\n", ctx)
 
     def visitBreakStatement(self, ctx: CParser.BreakStatementContext):
-        if self.break_to is not None:
+        if self.break_to:
             self.builder.branch(self.break_to)
         else:
             raise SemanticError("No way to break!\n", ctx)
@@ -981,7 +981,7 @@ class ToLLVMVisitor(CVisitor):
             self.symbol_table.leave_scope()
 
     def visitSwitchStatement(self, ctx: CParser.SwitchStatementContext):
-        self.symbol_table.enter_scope()
+        # self.symbol_table.enter_scope()
 
         block_name = self.builder.block.name
         head_block = self.builder.append_basic_block(name="head".format(block_name))
@@ -1010,12 +1010,15 @@ class ToLLVMVisitor(CVisitor):
 
         self.switch_val = lst_switch_val
         self.break_to = lst_break_to
-        self.symbol_table.leave_scope()
+        # self.symbol_table.leave_scope()
 
     def visitLabeledStatement(self, ctx:CParser.LabeledStatementContext):
         if ctx.Case():
-            if self.switch_val == self.visit(ctx.constantExpression()):
-                self.visit(ctx.statement())
+            if self.switch_val:
+                if self.switch_val != self.visit(ctx.constantExpression()):
+                    self.visit(ctx.statement())
+            else:
+                raise SemanticError("No switch value!\n")
         elif ctx.Default():
             self.visit(ctx.statement())
         elif ctx.Identifier():
