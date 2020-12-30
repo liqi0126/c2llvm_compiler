@@ -586,97 +586,125 @@ class ToLLVMVisitor(CVisitor):
     def visitTerminal(self, node):  # DONE
         return node.getText()
 
-    def visitJumpStatement(self, ctx):
-        # TODO: xuyihao
-        if ctx.Break():
-            if self.lst_break is not None:
-                self.builder.branch(self.lst_break)
-            else:
-                raise Exception()
-        elif ctx.Continue():
-            if self.lst_continue is not None:
-                self.builder.branch(self.lst_continue)
-            else:
-                raise Exception()
-        elif ctx.Return():
-            if ctx.expression():
-                self.builder.ret(self.visit(ctx.expression()))
-            else:
-                self.builder.ret_void()
+    def visitJumpStatement(self, ctx:CParser.JumpStatementContext):
+        if ctx.breakStatement():
+            self.visitBreakStatement(ctx.breakStatement())
+        elif ctx.returnStatement():
+            self.visitReturnStatement(ctx.returnStatement())
+        elif ctx.continueStatement():
+            self.visitContinueStatement(ctx.continueStatement())
+        elif ctx.gotoStatement():
+            self.visitGotoStatement(ctx.gotoStatement())
+        elif ctx.gotoGCCStatement():
+            self.visitGotoGCCStatement(ctx.gotoGCCStatement())
 
-    def visitIterationStatement(self, ctx: CParser.IterationStatementContext):
-        # TODO: xuyihao
-        if ctx.While():
-            self.symbol_table = self.symbol_table.enter_scope()
+    def visitGotoStatement(self, ctx: CParser.GotoStatementContext):
+        raise UnSupportedError("Goto Unsupported!\n")
 
-            block_name = self.builder.block.name
-            cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
-            stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
-            quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
 
-            lst_continue = self.lst_continue
-            lst_break = self.lst_break
-            self.lst_continue = cond_block
-            self.lst_break = quit_block
+    def visitContinueStatement(self, ctx: CParser.ContinueStatementContext):
+        if self.lst_continue is not None:
+            self.builder.branch(self.lst_continue)
+        else:
+            raise SemanticError("No way to continue!\n", ctx)
 
-            # The condition expression of While
-            self.builder.branch(cond_block)
-            self.builder.position_at_start(cond_block)
-            expression = self.visit(ctx.expression())
+    def visitBreakStatement(self, ctx: CParser.BreakStatementContext):
+        if self.lst_continue is not None:
+            self.builder.branch(self.lst_break)
+        else:
+            raise SemanticError("No way to break!\n", ctx)
 
-            # Judge if jump to statement or quit
-            self.builder.cbranch(expression, stat_block, quit_block)
+    def visitReturnStatement(self, ctx: CParser.ReturnStatementContext):
+        if ctx.expression():
+            self.builder.ret(self.visit(ctx.expression()))
+        else:
+            self.builder.ret_void()
 
-            # The statement of While
-            self.builder.position_at_start(stat_block)
-            self.visit(ctx.statement())
+    def visitGotoGCCStatement(self, ctx: CParser.GotoGCCStatementContext):
+        raise UnSupportedError("Goto Unsupported!\n")
 
-            # Jump back to cond
-            self.builder.branch(cond_block)
+    def visitIterationStatement(self, ctx:CParser.IterationStatementContext):
+        if ctx.whileStatement():
+            self.visitWhileStatement(ctx.whileStatement())
+        elif ctx.forStatement():
+            self.visitForStatement(ctx.forStatement())
+        elif ctx.doWhileStatement():
+            self.visitDoWhileStatement(ctx.doWhileStatement())
 
-            # The quit block
-            self.builder.position_at_start(quit_block)
+    def visitWhileStatement(self, ctx:CParser.WhileStatementContext):
+        self.symbol_table = self.symbol_table.enter_scope()
 
-            self.lst_continue = lst_continue
-            self.lst_break = lst_break
-            self.symbol_table = self.symbol_table.leave_scope()
+        block_name = self.builder.block.name
+        cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+        stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+        quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
 
-        elif ctx.For():
-            self.symbol_table = self.symbol_table.enter_scope()
+        lst_continue = self.lst_continue
+        lst_break = self.lst_break
+        self.lst_continue = cond_block
+        self.lst_break = quit_block
 
-            block_name = self.builder.block.name
-            cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
-            stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
-            quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+        # The condition expression of While
+        self.builder.branch(cond_block)
+        self.builder.position_at_start(cond_block)
+        expression = self.visit(ctx.expression())
 
-            lst_continue = self.lst_continue
-            lst_break = self.lst_break
-            self.lst_continue = cond_block
-            self.lst_break = quit_block
+        # Judge if jump to statement or quit
+        self.builder.cbranch(expression, stat_block, quit_block)
 
-            condition_expression, op_expression = self.visit(ctx.forCondition())
+        # The statement of While
+        self.builder.position_at_start(stat_block)
+        self.visit(ctx.statement())
 
-            # The condition of For
-            self.builder.branch(cond_block)
-            self.builder.position_at_start(cond_block)
-            condition_value = self.visit(condition_expression)
+        # Jump back to cond
+        self.builder.branch(cond_block)
 
-            self.builder.cbranch(condition_value, stat_block, quit_block)
-            self.builder.position_at_start(stat_block)
-            self.visit(ctx.statement())
+        # The quit block
+        self.builder.position_at_start(quit_block)
 
-            if op_expression:
-                self.visit(op_expression)
+        self.lst_continue = lst_continue
+        self.lst_break = lst_break
+        self.symbol_table = self.symbol_table.leave_scope()
 
-            # come back to the cond
-            self.builder.branch(cond_block)
+    def visitDoWhileStatement(self, ctx:CParser.DoWhileStatementContext):
+        self.visitWhileStatement(ctx)
 
-            # quit block
-            self.builder.position_at_start(quit_block)
-            self.lst_continue = lst_continue
-            self.lst_break = lst_break
+    def visitForStatement(self, ctx:CParser.ForStatementContext):
+        self.symbol_table = self.symbol_table.enter_scope()
 
-            self.symbol_table = self.symbol_table.leave_scope()
+        block_name = self.builder.block.name
+        cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+        stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+        quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+
+        lst_continue = self.lst_continue
+        lst_break = self.lst_break
+        self.lst_continue = cond_block
+        self.lst_break = quit_block
+
+        condition_expression, op_expression = self.visit(ctx.forCondition())
+
+        # The condition of For
+        self.builder.branch(cond_block)
+        self.builder.position_at_start(cond_block)
+        condition_value = self.visit(condition_expression)
+
+        self.builder.cbranch(condition_value, stat_block, quit_block)
+        self.builder.position_at_start(stat_block)
+        self.visit(ctx.statement())
+
+        if op_expression:
+            self.visit(op_expression)
+
+        # come back to the cond
+        self.builder.branch(cond_block)
+
+        # quit block
+        self.builder.position_at_start(quit_block)
+        self.lst_continue = lst_continue
+        self.lst_break = lst_break
+
+        self.symbol_table = self.symbol_table.leave_scope()
 
     def visitForCondition(self, ctx: CParser.ForConditionContext):
         # TODO: xuyihao
@@ -688,7 +716,7 @@ class ToLLVMVisitor(CVisitor):
 
     def visitForDeclaration(self, ctx: CParser.ForDeclarationContext):
         # TODO: xuyihao
-        type = self.visit(ctx.declarationSpecifiers())
+        _type = self.visit(ctx.declarationSpecifiers())
         declarator_list = self.visit(ctx.initDeclaratorList())
 
         for name, init_val in declarator_list:
@@ -696,7 +724,7 @@ class ToLLVMVisitor(CVisitor):
             if _type2[0] == ARRAY_TYPE:
                 # 数组类型
                 length = _type2[1]
-                arr_type = ir.ArrayType(type, length.constant)
+                arr_type = ir.ArrayType(_type, length.constant)
                 if self.builder:
                     temp = self.builder.alloca(arr_type, name=name)
                     if init_val:
@@ -730,80 +758,86 @@ class ToLLVMVisitor(CVisitor):
 
     def visitSelectionStatement(self, ctx: CParser.SelectionStatementContext):
         # TODO: xuyihao
+        if ctx.ifStatement():
+            self.visitIfStatement(ctx.ifStatement())
+        elif ctx.switchStatement():
+            self.visitSwitchStatement(ctx.switchStatement())
 
-        if ctx.If():
-            if len(ctx.statement()) > 1:  # else or elif exist
-                self.symbol_table.enter_scope()
+    def visitIfStatement(self, ctx: CParser.IfStatementContext):
+        if len(ctx.statement()) > 1:  # else or elif exist
+            self.symbol_table.enter_scope()
 
-                block_name = self.builder.block.name
-                cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
-                stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
-                else_block = self.builder.append_basic_block(name='else'.format(block_name))
-                quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+            block_name = self.builder.block.name
+            cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+            stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+            else_block = self.builder.append_basic_block(name='else'.format(block_name))
+            quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
 
-                # condition block
-                self.builder.branch(cond_block)
-                self.builder.position_at_start(cond_block)
-                condition_value = self.visit(ctx.expression())
-                self.builder.cbranch(condition_value, stat_block, else_block)
+            # condition block
+            self.builder.branch(cond_block)
+            self.builder.position_at_start(cond_block)
+            condition_value = self.visit(ctx.expression())
+            self.builder.cbranch(condition_value, stat_block, else_block)
 
-                # if block
-                self.builder.position_at_start(stat_block)
-                self.symbol_table.enter_scope()
-                self.visit(ctx.statement()[0])
-                self.symbol_table.leave_scope()
+            # if block
+            self.builder.position_at_start(stat_block)
+            self.symbol_table.enter_scope()
+            self.visit(ctx.statement()[0])
+            self.symbol_table.leave_scope()
 
-                # if quit block
-                try:
-                    self.builder.branch(quit_block)
-                except:
-                    pass
-                self.builder.position_at_start(quit_block)
+            # if quit block
+            try:
+                self.builder.branch(quit_block)
+            except:
+                pass
+            self.builder.position_at_start(quit_block)
 
-                # else block
-                self.builder.position_at_start(else_block)
-                self.symbol_table.enter_scope()
-                self.visit(ctx.statement()[1])
-                self.symbol_table.leave_scope()
+            # else block
+            self.builder.position_at_start(else_block)
+            self.symbol_table.enter_scope()
+            self.visit(ctx.statement()[1])
+            self.symbol_table.leave_scope()
 
-                # else quit
-                try:
-                    self.builder.branch(quit_block)
-                except:
-                    pass
-                self.builder.position_at_start(quit_block)
+            # else quit
+            try:
+                self.builder.branch(quit_block)
+            except:
+                pass
+            self.builder.position_at_start(quit_block)
 
-                self.symbol_table.leave_scope()
+            self.symbol_table.leave_scope()
 
-            else:  # no else
-                self.symbol_table.enter_scope()
+        else:  # no else
+            self.symbol_table.enter_scope()
 
-                block_name = self.builder.block.name
-                cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
-                stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
-                quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+            block_name = self.builder.block.name
+            cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+            stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+            quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
 
-                # condition block
-                self.builder.branch(cond_block)
-                self.builder.position_at_start(cond_block)
-                condition_value = self.visit(ctx.expression())
-                self.builder.cbranch(condition_value, stat_block, quit_block)
+            # condition block
+            self.builder.branch(cond_block)
+            self.builder.position_at_start(cond_block)
+            condition_value = self.visit(ctx.expression())
+            self.builder.cbranch(condition_value, stat_block, quit_block)
 
-                # statement block
-                self.builder.position_at_start(stat_block)
-                self.symbol_table.enter_scope()
-                self.visit(ctx.statement()[0])
-                self.symbol_table.leave_scope()
+            # statement block
+            self.builder.position_at_start(stat_block)
+            self.symbol_table.enter_scope()
+            self.visit(ctx.statement()[0])
+            self.symbol_table.leave_scope()
 
-                # quit block
-                try:
-                    self.builder.branch(quit_block)
-                except:
-                    pass
-                self.builder.position_at_start(quit_block)
+            # quit block
+            try:
+                self.builder.branch(quit_block)
+            except:
+                pass
+            self.builder.position_at_start(quit_block)
 
-                self.symbol_table.leave_scope()
+            self.symbol_table.leave_scope()
 
+    def visitSwitchStatement(self, ctx: CParser.SwitchStatementContext):
+       raise UnSupportedError("Switch Unsupport!\n")
 
     def output(self):
         return repr(self.module)
