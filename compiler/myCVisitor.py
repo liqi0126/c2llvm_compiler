@@ -22,6 +22,7 @@ class ToLLVMVisitor(CVisitor):
         self.symbol_table = SymbolTable()
         self.continue_to = None
         self.break_to = None
+        self.switch_val = None
         self.struct_table = StructTable()
 
     # help function
@@ -831,7 +832,46 @@ class ToLLVMVisitor(CVisitor):
             self.symbol_table.leave_scope()
 
     def visitSwitchStatement(self, ctx: CParser.SwitchStatementContext):
-       raise UnSupportedError("Switch Unsupport!\n")
+        self.symbol_table.enter_scope()
+
+        block_name = self.builder.block.name
+        head_block = self.builder.append_basic_block(name="head".format(block_name))
+        stat_block = self.builder.append_basic_block(name="head".format(block_name))
+        quit_block = self.builder.append_basic_block(name="quit".format(block_name))
+
+        lst_break_to = self.break_to
+        self.break_to = quit_block
+        lst_switch_val = self.switch_val
+
+        # head expression block
+        self.builder.branch(head_block)
+        self.builder.position_at_start(head_block)
+        self.switch_val = self.visit(ctx.expression())
+
+        # statement block
+        self.builder.branch(stat_block)
+        self.builder.position_at_start(stat_block)
+        self.symbol_table.enter_scope()
+        self.visit(ctx.statement())
+        self.symbol_table.leave_scope()
+
+        # quit block
+        self.builder.branch(quit_block)
+        self.builder.position_at_start(quit_block)
+
+        self.switch_val = lst_switch_val
+        self.break_to = lst_break_to
+        self.symbol_table.leave_scope()
+
+    def visitLabeledStatement(self, ctx:CParser.LabeledStatementContext):
+        if ctx.Case():
+            if self.switch_val == self.visit(ctx.constantExpression()):
+                self.visit(ctx.statement())
+        elif ctx.Default():
+            self.visit(ctx.statement())
+        elif ctx.Identifier():
+            raise UnSupportedError("labeled statement unsupported!\n")
+
 
     def output(self):
         return repr(self.module)
