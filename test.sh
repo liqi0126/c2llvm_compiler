@@ -1,5 +1,6 @@
 #!/bin/bash
 
-python main.py test/eval.c; /usr/local/opt/llvm/bin/lli test.ll < test/case1;
-python main.py test/IsPalindrome.c; /usr/local/opt/llvm/bin/lli test.ll < test/case2;
-python main.py test/KMP.c; /usr/local/opt/llvm/bin/lli test.ll < test/case3;
+python main.py test/eval.c test.ll; /usr/local/opt/llvm/bin/lli test.ll < test/eval_case;
+python main.py test/palindrome.c test.ll; /usr/local/opt/llvm/bin/lli test.ll < test/palindrome_case;
+python main.py test/quicksort.c test.ll; /usr/local/opt/llvm/bin/lli test.ll < test/quicksort_case;
+python main.py test/kmp.c test.ll; /usr/local/opt/llvm/bin/lli test.ll < test/kmp_case;

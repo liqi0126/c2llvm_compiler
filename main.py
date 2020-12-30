@@ -12,19 +12,13 @@ def main(argv):
     stream = CommonTokenStream(lexer)
     stream.fill()
 
-    # print('token:')
-    # print([token.type for token in stream.tokens][:-1])
-
     parser = CParser(stream)
-
     tree = parser.compilationUnit()
-    # print('tree:')
-    # print(Trees.toStringTree(tree, None, parser))
 
     visitor = ToLLVMVisitor()
     visitor.visit(tree)
 
-    with open('test.ll', 'w', encoding='utf-8') as f:
+    with open(argv[2], 'w', encoding='utf-8') as f:
         f.write(visitor.output())
 
 
