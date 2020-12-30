@@ -487,14 +487,35 @@ expressionStatement
     ;
 
 selectionStatement
+    :   ifStatement
+    |   switchStatement
+    ;
+
+
+ifStatement
     :   'if' '(' expression ')' statement ('else' statement)?
-    |   'switch' '(' expression ')' statement
+    ;
+
+switchStatement
+    :   'switch' '(' expression ')' statement
     ;
 
 iterationStatement
+    :   whileStatement
+    |   doWhileStatement
+    |   forStatement
+    ;
+
+whileStatement
     :   While '(' expression ')' statement
-    |   Do statement While '(' expression ')' ';'
-    |   For '(' forCondition ')' statement
+    ;
+
+doWhileStatement
+    :   Do statement While '(' expression ')' ';'
+    ;
+
+forStatement
+    :   For '(' forCondition ')' statement
     ;
 
 //    |   'for' '(' expression? ';' expression?  ';' forUpdate? ')' statement
@@ -516,11 +537,31 @@ forExpression
     ;
 
 jumpStatement
+    :   gotoStatement
+    |   continueStatement
+    |   breakStatement
+    |   returnStatement
+    |   gotoGCCStatement
+    ;
+
+gotoStatement
     :   'goto' Identifier ';'
-    |   'continue' ';'
-    |   'break' ';'
-    |   'return' expression? ';'
-    |   'goto' unaryExpression ';' // GCC extension
+    ;
+
+continueStatement
+    :   'continue' ';'
+    ;
+
+breakStatement
+    :   'break' ';'
+    ;
+
+returnStatement
+    :   'return' expression? ';'
+    ;
+
+gotoGCCStatement
+    :   'goto' unaryExpression ';' // GCC extension
     ;
 
 compilationUnit
