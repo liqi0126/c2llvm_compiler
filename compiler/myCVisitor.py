@@ -1,6 +1,3 @@
-import re
-
-
 from .CParser import CParser
 from .CVisitor import CVisitor
 from .CType import *

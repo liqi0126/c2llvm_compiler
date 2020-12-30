@@ -1,10 +1,10 @@
 import sys
 from antlr4 import *
-from antlr4.tree.Trees import Trees
 
 from compiler.CLexer import CLexer
 from compiler.CParser import CParser
 from compiler.myCVisitor import ToLLVMVisitor
+
 
 def main(argv):
     input = FileStream(argv[1])
