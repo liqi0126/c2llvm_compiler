@@ -20,8 +20,8 @@ class ToLLVMVisitor(CVisitor):
 
         self.builder = None
         self.symbol_table = SymbolTable()
-        self.lst_continue = None
-        self.lst_break = None
+        self.continue_to = None
+        self.break_to = None
         self.struct_table = StructTable()
 
     # help function
@@ -177,7 +177,6 @@ class ToLLVMVisitor(CVisitor):
 
         declarator_list = self.visit(ctx.initDeclaratorList())
         for name, init_val in declarator_list:
-
             # system function declaration
             if isinstance(name, tuple):
                 func_name, func_params = name
@@ -185,51 +184,52 @@ class ToLLVMVisitor(CVisitor):
                 fnty = ir.FunctionType(_type, args, var_arg=True)
                 func = ir.Function(self.module, fnty, name=func_name)
                 self.symbol_table.insert(func_name, btype=(FUNCTION_TYPE, None), value=func)
-                continue
             # struct declaration
             elif type(_type) == ir.types.IdentifiedStructType:
                 ptr_struct = self.struct_table.get_ptr(_type.name)
                 self.symbol_table.insert(name, btype=(STRUCT_TYPE, None), value=self.builder.alloca(ptr_struct))
-                continue
-
-            myType = self.symbol_table.get_type(name)
-            # array declaration
-            if myType[0] == ARRAY_TYPE:
-                length = myType[1]
-                arr_type = ir.ArrayType(_type, length.constant)
-
-                if self.builder:
-                    value = self.builder.alloca(arr_type, name=name)
-                else:
-                    value = ir.GlobalValue(self.module, arr_type, name=name)
-
-                if init_val:
-                    l = len(init_val)
-                    if l > length.constant:
-                        raise SemanticError("length of initialization exceed length of array")
-
-                    for i in range(l):
-                        indices = [ir.Constant(INT_TYPE, 0), ir.Constant(INT_TYPE, i)]
-                        ptr = self.builder.gep(ptr=value, indices=indices)
-                        self.builder.store(init_val[i], ptr)
-
-                # save pointer
-                value = self.builder.bitcast(value, ir.PointerType(_type))
-                temp_ptr = self.builder.alloca(value.type)
-                self.builder.store(value, temp_ptr)
-                value = temp_ptr
-                self.symbol_table.insert(name, btype=myType, value=value)
-            # normal declaration
             else:
-                if self.builder:
-                    value = self.builder.alloca(_type, name=name)
-                else:
-                    value = ir.GlobalValue(self.module, _type, name=name)
-#
-                if init_val:
-                    self.builder.store(init_val, value)
+                self.variableDeclaration(name, init_val, _type)
 
-                self.symbol_table.insert(name, btype=myType, value=value)
+    def variableDeclaration(self, name, init_val, _type):
+        myType = self.symbol_table.get_type(name)
+        # array declaration
+        if myType[0] == ARRAY_TYPE:
+            length = myType[1]
+            arr_type = ir.ArrayType(_type, length.constant)
+
+            if self.builder:
+                value = self.builder.alloca(arr_type, name=name)
+            else:
+                value = ir.GlobalValue(self.module, arr_type, name=name)
+
+            if init_val:
+                l = len(init_val)
+                if l > length.constant:
+                    raise SemanticError("length of initialization exceed length of array")
+
+                for i in range(l):
+                    indices = [ir.Constant(INT_TYPE, 0), ir.Constant(INT_TYPE, i)]
+                    ptr = self.builder.gep(ptr=value, indices=indices)
+                    self.builder.store(init_val[i], ptr)
+
+            # save pointer
+            value = self.builder.bitcast(value, ir.PointerType(_type))
+            temp_ptr = self.builder.alloca(value.type)
+            self.builder.store(value, temp_ptr)
+            value = temp_ptr
+            self.symbol_table.insert(name, btype=myType, value=value)
+        # normal declaration
+        else:
+            if self.builder:
+                value = self.builder.alloca(_type, name=name)
+            else:
+                value = ir.GlobalValue(self.module, _type, name=name)
+
+            if init_val:
+                self.builder.store(init_val, value)
+
+            self.symbol_table.insert(name, btype=myType, value=value)
 
     def visitAssignmentExpression(self, ctx: CParser.AssignmentExpressionContext):
         # TODO: dingyifeng
@@ -534,7 +534,6 @@ class ToLLVMVisitor(CVisitor):
         else:
             print("Oops, not supported in primary expression")
 
-
     def visitArgumentExpressionList(self, ctx: CParser.ArgumentExpressionListContext):  # DONE
         args_list = self.visit(ctx.argumentExpressionList()) if ctx.argumentExpressionList() else []
         args_list += [self.visit(ctx.assignmentExpression())]
@@ -601,16 +600,15 @@ class ToLLVMVisitor(CVisitor):
     def visitGotoStatement(self, ctx: CParser.GotoStatementContext):
         raise UnSupportedError("Goto Unsupported!\n")
 
-
     def visitContinueStatement(self, ctx: CParser.ContinueStatementContext):
-        if self.lst_continue is not None:
-            self.builder.branch(self.lst_continue)
+        if self.continue_to is not None:
+            self.builder.branch(self.continue_to)
         else:
             raise SemanticError("No way to continue!\n", ctx)
 
     def visitBreakStatement(self, ctx: CParser.BreakStatementContext):
-        if self.lst_continue is not None:
-            self.builder.branch(self.lst_break)
+        if self.break_to is not None:
+            self.builder.branch(self.break_to)
         else:
             raise SemanticError("No way to break!\n", ctx)
 
@@ -639,10 +637,10 @@ class ToLLVMVisitor(CVisitor):
         stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
         quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
 
-        lst_continue = self.lst_continue
-        lst_break = self.lst_break
-        self.lst_continue = cond_block
-        self.lst_break = quit_block
+        lst_continue_to = self.continue_to
+        lst_break_to = self.break_to
+        self.continue_to = cond_block
+        self.break_to = quit_block
 
         # The condition expression of While
         self.builder.branch(cond_block)
@@ -662,12 +660,42 @@ class ToLLVMVisitor(CVisitor):
         # The quit block
         self.builder.position_at_start(quit_block)
 
-        self.lst_continue = lst_continue
-        self.lst_break = lst_break
+        self.continue_to = lst_continue_to
+        self.break_to = lst_break_to
         self.symbol_table = self.symbol_table.leave_scope()
 
     def visitDoWhileStatement(self, ctx:CParser.DoWhileStatementContext):
-        self.visitWhileStatement(ctx)
+        self.symbol_table = self.symbol_table.enter_scope()
+
+        block_name = self.builder.block.name
+        stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+        cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+        quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+
+        lst_continue_to = self.continue_to
+        lst_break_to = self.break_to
+        self.continue_to = cond_block
+        self.break_to = quit_block
+
+        # The statement of While
+        self.builder.branch(stat_block)
+        self.builder.position_at_start(stat_block)
+        self.visit(ctx.statement())
+
+        # The condition expression of While
+        self.builder.branch(cond_block)
+        self.builder.position_at_start(cond_block)
+        expression = self.visit(ctx.expression())
+
+        # Judge if jump to statement or quit
+        self.builder.cbranch(expression, stat_block, quit_block)
+
+        # The quit block
+        self.builder.position_at_start(quit_block)
+
+        self.continue_to = lst_continue_to
+        self.break_to = lst_break_to
+        self.symbol_table = self.symbol_table.leave_scope()
 
     def visitForStatement(self, ctx:CParser.ForStatementContext):
         self.symbol_table = self.symbol_table.enter_scope()
@@ -677,10 +705,10 @@ class ToLLVMVisitor(CVisitor):
         stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
         quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
 
-        lst_continue = self.lst_continue
-        lst_break = self.lst_break
-        self.lst_continue = cond_block
-        self.lst_break = quit_block
+        lst_continue_to = self.continue_to
+        lst_break_to = self.break_to
+        self.continue_to = cond_block
+        self.break_to = quit_block
 
         condition_expression, op_expression = self.visit(ctx.forCondition())
 
@@ -701,8 +729,8 @@ class ToLLVMVisitor(CVisitor):
 
         # quit block
         self.builder.position_at_start(quit_block)
-        self.lst_continue = lst_continue
-        self.lst_break = lst_break
+        self.continue_to = lst_continue_to
+        self.break_to = lst_break_to
 
         self.symbol_table = self.symbol_table.leave_scope()
 
@@ -720,41 +748,7 @@ class ToLLVMVisitor(CVisitor):
         declarator_list = self.visit(ctx.initDeclaratorList())
 
         for name, init_val in declarator_list:
-            _type2 = self.symbol_table.get_type(name)
-            if _type2[0] == ARRAY_TYPE:
-                # 数组类型
-                length = _type2[1]
-                arr_type = ir.ArrayType(_type, length.constant)
-                if self.builder:
-                    temp = self.builder.alloca(arr_type, name=name)
-                    if init_val:
-                        # 有初值
-                        l = len(init_val)
-                        if l > length.constant:
-                            # 数组过大
-                            return
-                        for i in range(l):
-                            indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
-                            ptr = self.builder.gep(ptr=temp, indices=indices)
-                            self.builder.store(init_val[i], ptr)
-                        temp = self.builder.bitcast(temp, ir.PointerType(_type))
-                        temp_ptr = self.builder.alloca(temp.type)
-                        self.builder.store(temp, temp_ptr)
-                        temp = temp_ptr
-                else:
-                    temp = ir.GlobalValue(self.module, arr_type, name=name)
-                # 保存指针
-                self.symbol_table.insert(name, btype=_type2, value=temp)
-
-            else:
-                # 普通变量
-                if self.builder:
-                    temp = self.builder.alloca(_type, size=1, name=name)
-                    if init_val:
-                        self.builder.store(init_val, temp)
-
-                # 保存指针
-                self.symbol_table.insert(name, btype=_type2, value=temp)
+            self.variableDeclaration(name, init_val, _type)
 
     def visitSelectionStatement(self, ctx: CParser.SelectionStatementContext):
         # TODO: xuyihao
