@@ -1,28 +1,30 @@
-from llvmlite import ir
-
-
 class StructTable:
     def __init__(self):
-        self.struct_dict = {}
+        self.type_list = {}
 
-    def add_struct(self, name, member_list, type_list):
-        if name in self.struct_dict:
-            return {'succeed': False, 'reason': f'{name} has already been defined!'}
-
-        self.struct_dict[name] = {'member': member_list, 'type': ir.LiteralStructType(type_list)}
-        return {'succeed': True}
-
-    def get_member_id(self, name, member):
-        if name not in self.struct_dict:
+    def getPtr(self, name):
+        if name not in self.type_list.keys():
             return None
-        member_list = self.struct_dict[name]['member']
+        return self.type_list[name]['ptr']
 
-        return member_list.index(member)
-
-    def get_member_type(self, name, member):
-        if name not in self.struct_dict:
+    def getParamIndice(self,name,param_name):
+        if name not in self.type_list.keys():
             return None
-        struct = self.struct_dict[name]
-        index = struct['member'].index(member)
-        type = struct['type'].elements[index]
-        return type
+        return self.type_list[name]['param_list'].index(param_name)
+
+    def insert(self, name, ptr,param_list):
+        # ptr 指结构体定义指针， param_dist指参数映射字典
+        self.type_list[name] = {"ptr":ptr,"param_list":param_list}
+
+
+class FuncTable:
+    def __init__(self):
+        self.func_list = {}
+
+    def getValue(self, name):
+        if name not in self.func_list.keys():
+            return None
+        return self.func_list[name]
+
+    def insert(self, name, value):
+        self.func_list[name] = value
