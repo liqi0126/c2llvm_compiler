@@ -190,9 +190,9 @@ class ToLLVMVisitor(CVisitor):
                 ptr_struct = self.struct_table.get_ptr(_type.name)
                 self.symbol_table.insert(name, btype=(STRUCT_TYPE, None), value=self.builder.alloca(ptr_struct))
             else:
-                self.variableDeclaration(name, init_val, _type)
+                self.variableDeclaration(name, init_val, _type, ctx=ctx)
 
-    def variableDeclaration(self, name, init_val, _type):
+    def variableDeclaration(self, name, init_val, _type, ctx=None):
         myType = self.symbol_table.get_type(name)
         # array declaration
         if myType[0] == ARRAY_TYPE:
@@ -672,11 +672,8 @@ class ToLLVMVisitor(CVisitor):
                 string_literal_pointer = self.builder.bitcast(string_literal_pointer, ir.PointerType(CHAR_TYPE))
                 return string_literal_pointer, False
         elif len(ctx.children) == 3:
-            if ctx.children[0] != '(' or ctx.children[2] != ')':
-                raise Exception()
-            else:
-                expression = self.visit(ctx.children[1])
-                return expression, False
+            expression = self.visit(ctx.children[1])
+            return expression, False
         else:
             raise Exception()
 
@@ -755,7 +752,7 @@ class ToLLVMVisitor(CVisitor):
             raise SemanticError("No way to continue!\n", ctx)
 
     def visitBreakStatement(self, ctx: CParser.BreakStatementContext):
-        if self.break_to is not None:
+        if self.break_to:
             self.builder.branch(self.break_to)
         else:
             raise SemanticError("No way to break!\n", ctx)
@@ -979,7 +976,7 @@ class ToLLVMVisitor(CVisitor):
             self.symbol_table.leave_scope()
 
     def visitSwitchStatement(self, ctx: CParser.SwitchStatementContext):
-        self.symbol_table.enter_scope()
+        # self.symbol_table.enter_scope()
 
         block_name = self.builder.block.name
         head_block = self.builder.append_basic_block(name="head".format(block_name))
@@ -1008,12 +1005,15 @@ class ToLLVMVisitor(CVisitor):
 
         self.switch_val = lst_switch_val
         self.break_to = lst_break_to
-        self.symbol_table.leave_scope()
+        # self.symbol_table.leave_scope()
 
     def visitLabeledStatement(self, ctx:CParser.LabeledStatementContext):
         if ctx.Case():
-            if self.switch_val == self.visit(ctx.constantExpression()):
-                self.visit(ctx.statement())
+            if self.switch_val:
+                if self.switch_val != self.visit(ctx.constantExpression()):
+                    self.visit(ctx.statement())
+            else:
+                raise SemanticError("No switch value!\n")
         elif ctx.Default():
             self.visit(ctx.statement())
         elif ctx.Identifier():
