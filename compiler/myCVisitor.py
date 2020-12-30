@@ -1,333 +1,235 @@
-# Generated from compiler/C.g4 by ANTLR 4.9
 import re
 
-from antlr4 import *
 
-if __name__ is not None and "." in __name__:
-    from .CParser import CParser
-    from .CVisitor import CVisitor
-else:
-    from CParser import CParser
-    from CVisitor import CVisitor
-
+from .CParser import CParser
+from .CVisitor import CVisitor
+from .CType import *
+from .structTable import StructTable
+from .symbolTable import SymbolTable
+from .Errors import SemanticError, UnSupportedError
 
 from llvmlite import ir
-from .structTable import StructTable, FuncTable
-from .symbolTable import SymbolTable, createTable
-
-
-class SemanticError(Exception):
-    """语义错误基类"""
-
-    def __init__(self, msg, ctx=None):
-        super().__init__()
-        if ctx:
-            self.line = ctx.start.line  # 错误出现位置
-            self.column = ctx.start.column
-        else:
-            self.line = 0
-            self.column = 0
-        self.msg = msg
-
-    def __str__(self):
-        return "SemanticError: " + str(self.line) + ":" + str(self.column) + " " + self.msg
 
 
 class ToLLVMVisitor(CVisitor):
-    BASE_TYPE = 0
-    ARRAY_TYPE = 1
-    ARRAY_2D_TYPE = 4
-    FUNCTION_TYPE = 2
-
-    CHAR_TYPE = ir.IntType(8)
-    INT_TYPE = ir.IntType(32)
-    FLOAT_TYPE = ir.FloatType()
-    DOUBLE_TYPE = ir.DoubleType()
-    VOID_TYPE = ir.VoidType()
-    BOOL_TYPE = ir.IntType(1)
-
     def __init__(self):
+        super().__init__()
         self.module = ir.Module()
-        self.module.triple = "x86_64-pc-linux-gnu" # llvm.Target.from_default_triple()
-        self.module.data_layout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128" # llvm.create_mcjit_compiler(backing_mod, target_machine)
+        self.module.triple = "x86_64-pc-linux-gnu"
+        self.module.data_layout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
 
         self.builder = None
-        self.symbol_table = SymbolTable(None)
-        self.lst_continue = None
-        self.lst_break = None
-        self.func_table = FuncTable()
+        self.symbol_table = SymbolTable()
+        self.continue_to = None
+        self.break_to = None
         self.struct_table = StructTable()
-        self.struct_instance_ing = False  # 是否在实例化结构体
 
-    def visitCompilationUnit(self, ctx):
+    # help function
+    def pos(self, ctx):
+        return f'{ctx.start.line}: {ctx.start.column}'
+
+    def visitCompilationUnit(self, ctx):  # DONE
         for i in ctx.children:
             self.visit(i)
 
-    def visitFunctionDefinition(self, ctx):
-        assert ctx.declarationList() == None
-        _type = self.visit(ctx.declarationSpecifiers())
-        name, params = self.visit(ctx.declarator())
-        args = [i for i, j in params]
-        fnty = ir.FunctionType(_type, args)
-        func = ir.Function(self.module, fnty, name=name)
-        block = func.append_basic_block(name="entry")
+    def visitFunctionDefinition(self, ctx):  # DONE
+        func_type = self.visit(ctx.declarationSpecifiers())
+        func_name, func_params = self.visit(ctx.declarator())
+
+        llvm_fnty = ir.FunctionType(func_type, [arg for arg, _ in func_params])
+        llvm_func = ir.Function(self.module, llvm_fnty, name=func_name)
+
+        block = llvm_func.append_basic_block(name=f"{func_name}.entry")
+
         self.builder = ir.IRBuilder(block)
-        self.symbol_table.insert(name, value=func)
-        self.symbol_table = createTable(self.symbol_table)
-        func_args = func.args
-        arg_names = [j for i, j in params]
-        assert len(arg_names) == len(func_args)
-        for seq, name in enumerate(arg_names):
-            arg = func_args[seq]
+        self.symbol_table.insert(func_name, value=llvm_func)
+
+        self.symbol_table = self.symbol_table.enter_scope()
+
+        arg_names = [name for _, name in func_params]
+        for arg, name in zip(llvm_func.args, arg_names):
             arg_ptr = self.builder.alloca(arg.type, name=name)
             self.builder.store(arg, arg_ptr)
             self.symbol_table.insert(name, value=arg_ptr)
-        self.visit(ctx.compoundStatement())
-        if _type == self.VOID_TYPE:
-            try:
-                self.builder.ret_void()
-            except:
-                pass
-        self.symbol_table = self.symbol_table.getFather()
 
-    def visitDeclarator(self, ctx: CParser.DeclaratorContext):
+        self.visit(ctx.compoundStatement())
+        if func_type == VOID_TYPE:
+            self.builder.ret_void()
+
+        self.symbol_table = self.symbol_table.leave_scope()
+
+    def visitDeclarator(self, ctx: CParser.DeclaratorContext):  # DONE
         return self.visit(ctx.directDeclarator())
 
-    def visitDirectDeclarator(self, ctx: CParser.DirectDeclaratorContext):
+    def visitDirectDeclarator(self, ctx: CParser.DirectDeclaratorContext):  # DONE
+        name = self.visit(ctx.getChild(0))
         if ctx.Identifier():
-            name = self.visit(ctx.Identifier())
-            btype = (self.BASE_TYPE, None)
-            self.symbol_table.insert(name, btype)
+            self.symbol_table.insert(name, (BASE_TYPE, None))
             return name
         elif ctx.children[1].getText() == '[':
-            name = self.visit(ctx.directDeclarator())
-            if self.symbol_table.getType(name) is not None and self.symbol_table.getValue(name) is None:
-                # 二维数组的情况
-                btype, length = self.symbol_table.getType(name)
-                if btype == self.ARRAY_TYPE:
-                    first_dimension = length
-                    second_dimension = self.visit(ctx.assignmentExpression())
-                    dim = (first_dimension, second_dimension)
-                    btype = (self.ARRAY_2D_TYPE, dim)
-                    self.symbol_table.insert(name, btype=btype)
-                    return name
-
-            # 普通一维数组
+            # TODO: 2-dim vector
             length = self.visit(ctx.assignmentExpression())
-            btype = (self.ARRAY_TYPE, length)
+            btype = (ARRAY_TYPE, length)
             self.symbol_table.insert(name, btype=btype)
             return name
         elif ctx.children[1].getText() == '(':
-            name = self.visit(ctx.directDeclarator())
-            btype = (self.FUNCTION_TYPE, None)
+            btype = (FUNCTION_TYPE, None)
             self.symbol_table.insert(name, btype)
-            if ctx.parameterTypeList():
-                params = self.visit(ctx.parameterTypeList())
-            else:
-                params = []
+            params = self.visit(ctx.parameterTypeList()) if ctx.parameterTypeList() else []
             return name, params
 
-    def visitTypeSpecifier(self, ctx: CParser.TypeSpecifierContext):
+    def visitTypeSpecifier(self, ctx: CParser.TypeSpecifierContext):  # DONE
+        if ctx.Void():
+            return VOID_TYPE
+        elif ctx.Char():
+            return CHAR_TYPE
+        elif ctx.Int():
+            return INT_TYPE
+        elif ctx.Float():
+            return FLOAT_TYPE
+        elif ctx.Double():
+            return DOUBLE_TYPE
         if ctx.pointer():
-            _type = self.visit(ctx.typeSpecifier())
-            return ir.PointerType(_type)
+            type = self.visit(ctx.typeSpecifier())
+            return ir.PointerType(type)
         elif ctx.structOrUnionSpecifier():
             return self.visit(ctx.structOrUnionSpecifier())
         elif ctx.typedefName():
             return self.visit(ctx.typedefName())
         else:
-            _type = {
-                'int': self.INT_TYPE,
-                'char': self.CHAR_TYPE,
-                'float': self.FLOAT_TYPE,
-                'double': self.DOUBLE_TYPE,
-                'void': self.VOID_TYPE
-            }.get(ctx.getText())
-            return _type
+            raise UnSupportedError("unsupported type", ctx)
 
-    def visitStructOrUnionSpecifier(self, ctx: CParser.StructOrUnionSpecifierContext):
+    def visitStructOrUnionSpecifier(self, ctx: CParser.StructOrUnionSpecifierContext):   # DONE
         if ctx.structDeclarationList():
-            # 结构本身的声明/定义
-            label_ = self.visit(ctx.structOrUnion())
-            if label_ == 'struct':
-                # 结构体
-                if ctx.Identifier():
-                    # 非匿名结构
-                    struct_name = ctx.Identifier().getText()
-                    if self.symbol_table.getValue(struct_name):
-                        # 重定义
-                        print("Redefintion error!")
-                    else:
-                        self.is_defining_struct = struct_name
-                        tmp_list = self.visit(ctx.structDeclarationList())
-                        index = 0
-                        ele_list = []
-                        param_list = []
-                        for ele in tmp_list:
-                            param_list.append(ele['name'])
-                            ele_list.append(ele['type'])
-                        new_struct = ir.global_context.get_identified_type(name=struct_name)
-                        new_struct.set_body(*ele_list)
-                        # 将struct定义插入结构体表，记录
-                        self.struct_table.insert(struct_name, new_struct, param_list)
-                        return new_struct
-        else:
-            # 结构实体的定义
-            label_ = self.visit(ctx.structOrUnion())
-            if label_ == 'struct':
-                # 结构体
-                struct_name = ctx.Identifier().getText()
+            if not ctx.Identifier():
+                raise UnSupportedError("don't support anonymous struct", ctx)
+            struct_name = ctx.Identifier().getText()
+            if self.symbol_table.get_value(struct_name):
+                raise SemanticError("redefinition", ctx)
+            else:
+                dec_list = self.visit(ctx.structDeclarationList())
+                param_list, type_list = [], []
+                for dec in dec_list:
+                    param_list.append(dec['name'])
+                    type_list.append(dec['type'])
                 new_struct = ir.global_context.get_identified_type(name=struct_name)
+                new_struct.set_body(*type_list)
+                self.struct_table.insert(struct_name, new_struct, param_list, type_list)
                 return new_struct
+        else:
+            struct_name = ctx.Identifier().getText()
+            new_struct = ir.global_context.get_identified_type(name=struct_name)
+            return new_struct
 
-    def visitTypedefName(self, ctx: CParser.TypedefNameContext):
+    def visitTypedefName(self, ctx: CParser.TypedefNameContext):  # DONE
         return ctx.getText()
 
-    def visitStructDeclarationList(self, ctx: CParser.StructDeclarationListContext):
-        if ctx.structDeclarationList():
-            sub_list = self.visit(ctx.structDeclarationList())
-            sub_dict = self.visit(ctx.structDeclaration())
-            sub_list.append(sub_dict)
-            return sub_list
-        else:
-            return [self.visit(ctx.structDeclaration())]
+    def visitStructDeclarationList(self, ctx: CParser.StructDeclarationListContext):  # DONE
+        dec_list = self.visit(ctx.structDeclarationList()) if ctx.structDeclarationList() else []
+        dec_list.append(self.visit(ctx.structDeclaration()))
+        return dec_list
 
-    def visitStructDeclaration(self, ctx: CParser.StructDeclarationContext):
+    def visitStructDeclaration(self, ctx: CParser.StructDeclarationContext):  # DONE
         if ctx.structDeclaratorList():
-            type_ = self.visit(ctx.specifierQualifierList())
-            name_ = self.visit(ctx.structDeclaratorList())
-            # return ir.ArrayType(type_,len_)
-            str___ = ctx.structDeclaratorList().getText()
-            len_ = int(re.findall(r'\d+', str___)[0])
-            return {"type": ir.ArrayType(type_, len_), "name": name_}
-        elif ctx.staticAssertDeclaration():
-            print("Oops, not supported yet!")
+            # TODO: what's this?
+            raise UnSupportedError("unsupported structDeclaratorList yet", ctx)
+            # struct_type = self.visit(ctx.specifierQualifierList())
+            # struct_name = self.visit(ctx.structDeclaratorList())
+            # str___ = ctx.structDeclaratorList().getText()
+            # len_ = int(re.findall(r'\d+', str___)[0])
+            # return {"type": ir.ArrayType(type_, len_), "name": name_}
         else:
             return self.visit(ctx.specifierQualifierList())
 
-    def visitStructDeclaratorList(self, ctx: CParser.StructDeclaratorListContext):
-        if not ctx.structDeclaratorList():
-            return self.visit(ctx.structDeclarator())
-        else:
-            print("Oops, not supported in struct declarator list!")
+    def visitStructDeclaratorList(self, ctx: CParser.StructDeclaratorListContext):  # DONE
+        if ctx.structDeclaratorList():
+            raise UnSupportedError("unsupported multiple struct declarator", ctx)
+        return self.visit(ctx.structDeclarator())
 
-    def visitStructDeclarator(self, ctx: CParser.StructDeclaratorContext):
-        if len(ctx.children) == 1:
-            return self.visit(ctx.declarator())
-        else:
-            print("Oops, not supported in struct declarator!")
+    def visitStructDeclarator(self, ctx: CParser.StructDeclaratorContext):   # DONE
+        if ctx.constantExpression():
+            raise UnSupportedError("unsupported constant expression", ctx)
+        return self.visit(ctx.declarator())
 
-    def visitSpecifierQualifierList(self, ctx: CParser.SpecifierQualifierListContext):
+    def visitSpecifierQualifierList(self, ctx: CParser.SpecifierQualifierListContext):  # DONE
+        # TODO: liqi
         if ctx.typeQualifier():
-            print("typeQualifier not supported yet!")
+            raise UnSupportedError("typeQualifier not supported yet!", ctx)
         if not ctx.specifierQualifierList():
             return self.visit(ctx.typeSpecifier())
         else:
-            sub_dict = {'type': self.visit(ctx.children[0]),
-                        'name': self.visit(ctx.children[1])}
-            return sub_dict
+            return {'type': self.visit(ctx.children[0]),
+                    'name': self.visit(ctx.children[1])}
 
-    def visitStructOrUnion(self, ctx: CParser.StructOrUnionContext):
+    def visitStructOrUnion(self, ctx: CParser.StructOrUnionContext):   # DONE
         return ctx.getText()
 
-    def visitDeclarationSpecifiers(self, ctx):
+    def visitDeclarationSpecifiers(self, ctx):  # DONE
         return self.visit(ctx.children[-1])
 
-    def visitDeclarationSpecifier(self, ctx: CParser.DeclarationSpecifierContext):
+    def visitDeclarationSpecifier(self, ctx: CParser.DeclarationSpecifierContext):  # DONE
         return self.visit(ctx.children[0])
 
-    def visitDeclaration(self, ctx):
+    def visitDeclaration(self, ctx):  # DONE
         _type = self.visit(ctx.declarationSpecifiers())
-        # if type(_type)==ir.types.IdentifiedStructType:
-        #     # 如果是结构体，就没有初始化值操作。结构体定义在declarationSpecifiers中。
-        #     if ctx.initDeclaratorList():
-        #         print("xxx:",ctx.initDeclaratorList().getText())
-        #     return ''
         if not ctx.initDeclaratorList():
             return ''
+
         declarator_list = self.visit(ctx.initDeclaratorList())
         for name, init_val in declarator_list:
+            # system function declaration
             if isinstance(name, tuple):
-                # 函数类型
-                _func = name
-                name = _func[0]
-                params = _func[1]
-                args = [i for i, j in params]
+                func_name, func_params = name
+                args = [arg for arg, _ in func_params]
                 fnty = ir.FunctionType(_type, args, var_arg=True)
-                func = ir.Function(self.module, fnty, name=name)
-                _type2 = self.symbol_table.getType(name)
-                self.symbol_table.insert(name, btype=_type2, value=func)
-                continue
+                func = ir.Function(self.module, fnty, name=func_name)
+                self.symbol_table.insert(func_name, btype=(FUNCTION_TYPE, None), value=func)
+            # struct declaration
             elif type(_type) == ir.types.IdentifiedStructType:
-                # 结构体实例化，不需要初始值设定
-                ptr_struct = self.struct_table.getPtr(_type.name)
-                # 从结构体表获取定义
-                ptr_struct_instance_ = self.builder.alloca(ptr_struct)
-                # 结构体实例化，分配内存
-                self.symbol_table.insert(name, value=ptr_struct_instance_)
-                # 存入符号表，先记录struct类型指针，再记录当前实例化指针
-                continue
-
-            _type2 = self.symbol_table.getType(name)
-            if _type2[0] == self.ARRAY_TYPE:
-                # 1D数组类型
-                length = _type2[1]
-                arr_type = ir.ArrayType(_type, length.constant)
-                if self.builder:
-                    temp = self.builder.alloca(arr_type, name=name)
-                    if init_val:
-                        # 有初值
-                        l = len(init_val)
-                        if l > length.constant:
-                            # 数组过大
-                            return
-                        for i in range(l):
-                            indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
-                            ptr = self.builder.gep(ptr=temp, indices=indices)
-                            self.builder.store(init_val[i], ptr)
-
-                else:
-                    temp = ir.GlobalValue(self.module, arr_type, name=name)
-                # 保存指针
-                temp = self.builder.bitcast(temp, ir.PointerType(_type))
-                temp_ptr = self.builder.alloca(temp.type)
-                self.builder.store(temp, temp_ptr)
-                temp = temp_ptr
-                self.symbol_table.insert(name, btype=_type2, value=temp)
-
-            elif _type2[0] == self.ARRAY_2D_TYPE:
-                # 2D数组类型
-                dim = _type2[1]
-                first_dim = dim[0]
-                second_dim = dim[1]
-                first_dim_c = first_dim.constant
-                second_dim_c = second_dim.constant
-                inner_arr_type = ir.ArrayType(_type, second_dim_c)  # int *
-                for_outer_type = ir.PointerType(_type)  # int *
-                arr_type = ir.ArrayType(for_outer_type, first_dim_c)  # int **
-                outer_arr = self.builder.alloca(arr_type, name=name)  # int ***
-                for i in range(first_dim_c):
-                    temp = self.builder.alloca(inner_arr_type)  # int **
-                    temp = self.builder.bitcast(temp, ir.PointerType(_type))  # int *
-                    indices = [ir.Constant(self.INT_TYPE, 0), ir.Constant(self.INT_TYPE, i)]
-                    ptr = self.builder.gep(ptr=outer_arr, indices=indices)
-                    self.builder.store(temp, ptr)
-                temp = self.builder.bitcast(outer_arr, ir.PointerType(for_outer_type))
-                temp_ptr = self.builder.alloca(temp.type)
-                self.builder.store(temp, temp_ptr)
-                self.symbol_table.insert(name, btype=_type2, value=temp_ptr)
-
+                ptr_struct = self.struct_table.get_ptr(_type.name)
+                self.symbol_table.insert(name, btype=(STRUCT_TYPE, None), value=self.builder.alloca(ptr_struct))
             else:
-                # 普通变量
-                if self.builder:
-                    temp = self.builder.alloca(_type, size=1, name=name)
-                    if init_val:
-                        self.builder.store(init_val, temp)
-                else:
-                    temp = ir.GlobalValue(self.module, _type, name=name)
+                self.variableDeclaration(name, init_val, _type)
 
-                # 保存指针
-                self.symbol_table.insert(name, btype=_type2, value=temp)
+    def variableDeclaration(self, name, init_val, _type):
+        myType = self.symbol_table.get_type(name)
+        # array declaration
+        if myType[0] == ARRAY_TYPE:
+            length = myType[1]
+            arr_type = ir.ArrayType(_type, length.constant)
+
+            if self.builder:
+                value = self.builder.alloca(arr_type, name=name)
+            else:
+                value = ir.GlobalValue(self.module, arr_type, name=name)
+
+            if init_val:
+                l = len(init_val)
+                if l > length.constant:
+                    raise SemanticError("length of initialization exceed length of array")
+
+                for i in range(l):
+                    indices = [ir.Constant(INT_TYPE, 0), ir.Constant(INT_TYPE, i)]
+                    ptr = self.builder.gep(ptr=value, indices=indices)
+                    self.builder.store(init_val[i], ptr)
+
+            # save pointer
+            value = self.builder.bitcast(value, ir.PointerType(_type))
+            temp_ptr = self.builder.alloca(value.type)
+            self.builder.store(value, temp_ptr)
+            value = temp_ptr
+            self.symbol_table.insert(name, btype=myType, value=value)
+        # normal declaration
+        else:
+            if self.builder:
+                value = self.builder.alloca(_type, name=name)
+            else:
+                value = ir.GlobalValue(self.module, _type, name=name)
+
+            if init_val:
+                self.builder.store(init_val, value)
+
+            self.symbol_table.insert(name, btype=myType, value=value)
 
     def visitAssignmentExpression(self, ctx: CParser.AssignmentExpressionContext):
         # TODO: dingyifeng
@@ -780,244 +682,298 @@ class ToLLVMVisitor(CVisitor):
         for i in ctx.children:
             self.visit(i)
 
-    def visitBlockItem(self, ctx):
-        if ctx.statement():
-            return self.visit(ctx.statement())
-        return self.visit(ctx.declaration())
+    def visitBlockItem(self, ctx):  # DONE
+        return self.visit(ctx.getChild(0))
 
-    def visitInitDeclaratorList(self, ctx):
-        declarator_list = []
-        declarator_list.append(self.visit(ctx.initDeclarator()))
-        if ctx.initDeclaratorList():
-            declarator_list += self.visit(ctx.initDeclaratorList())
-        return declarator_list
+    def visitInitDeclaratorList(self, ctx):  # DONE
+        dec_list = self.visit(ctx.initDeclaratorList()) if ctx.initDeclaratorList() else []
+        dec_list.append(self.visit(ctx.initDeclarator()))
+        return dec_list
 
-    def visitInitDeclarator(self, ctx):
+    def visitInitDeclarator(self, ctx):   # DONE
         if ctx.initializer():
-            declarator = (self.visit(ctx.declarator()), self.visit(ctx.initializer()))
+            return self.visit(ctx.declarator()), self.visit(ctx.initializer())
         else:
-            declarator = (self.visit(ctx.declarator()), None)
-        return declarator
+            return self.visit(ctx.declarator()), None
 
-    def visitInitializer(self, ctx):
+    def visitInitializer(self, ctx):   # DONE
         if ctx.assignmentExpression():
             return self.visit(ctx.assignmentExpression())
         elif ctx.initializerList():
             return self.visit(ctx.initializerList())
 
-    def visitJumpStatement(self, ctx):
-        # xuyihao
-        if ctx.Return():
-            if ctx.expression():
-                _value = self.visit(ctx.expression())
-                try:
-                    self.builder.ret(_value)
-                except:
-                    pass
-            else:
-                try:
-                    self.builder.ret_void()
-                except:
-                    pass
-
-        elif ctx.Continue():
-            if self.lst_continue:
-                self.builder.branch(self.lst_continue)
-            else:
-                raise Exception()
-        elif ctx.Break():
-            if self.lst_break:
-                self.builder.branch(self.lst_break)
-            else:
-                raise Exception()
-
-    def visitIterationStatement(self, ctx: CParser.IterationStatementContext):
-        # xuyihao
-        if ctx.While():
-            block_name = self.builder.block.name
-            self.symbol_table = createTable(self.symbol_table)
-            init_block = self.builder.append_basic_block(name='{}.init'.format(block_name))
-            do_block = self.builder.append_basic_block(name='{}.do'.format(block_name))
-            end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
-            lst_continue, lst_break = self.lst_continue, self.lst_break
-            self.lst_continue, self.lst_break = init_block, end_block
-            try:
-                self.builder.branch(init_block)
-            except:
-                pass
-            self.builder.position_at_start(init_block)
-            expression = self.visit(ctx.expression())
-            self.builder.cbranch(expression, do_block, end_block)
-            self.builder.position_at_start(do_block)
-            self.visit(ctx.statement())
-            try:
-                self.builder.branch(init_block)
-            except:
-                pass
-            self.builder.position_at_start(end_block)
-            self.lst_continue, self.lst_break = lst_continue, lst_break
-            self.symbol_table = self.symbol_table.getFather()
-        elif ctx.Do():
-            pass
-        elif ctx.For():
-            block_name = self.builder.block.name
-            self.symbol_table = createTable(self.symbol_table)
-            init_block = self.builder.append_basic_block(name='{}.init'.format(block_name))
-            cond_block = self.builder.append_basic_block(name='{}.cond'.format(block_name))
-            do_block = self.builder.append_basic_block(name='{}.do'.format(block_name))
-            end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
-            lst_continue, lst_break = self.lst_continue, self.lst_break
-            self.lst_continue, self.lst_break = cond_block, end_block
-            self.builder.branch(init_block)
-            self.builder.position_at_start(init_block)
-            cond_exp, exp = self.visit(ctx.forCondition())
-            self.builder.branch(cond_block)
-            self.builder.position_at_start(cond_block)
-            condition = self.visit(cond_exp)
-            self.builder.cbranch(condition, do_block, end_block)
-            self.builder.position_at_start(do_block)
-            self.visit(ctx.statement())
-            if exp:
-                self.visit(exp)
-            try:
-                self.builder.branch(cond_block)
-            except:
-                pass
-            self.builder.position_at_start(end_block)
-            self.lst_continue, self.lst_break = lst_continue, lst_break
-            self.symbol_table = self.symbol_table.getFather()
-
-    def visitForCondition(self, ctx: CParser.ForConditionContext):
-        # xuyihao
-        self.visit(ctx.forDeclaration())
-        return ctx.forExpression(0), ctx.forExpression(1)
-
-    def visitForDeclaration(self, ctx: CParser.ForDeclarationContext):
-        # xuyihao
-        _type = self.visit(ctx.declarationSpecifiers())
-        declarator_list = self.visit(ctx.initDeclaratorList())
-        for name, init_val in declarator_list:
-            _type2 = self.symbol_table.getType(name)
-            if _type2[0] == self.ARRAY_TYPE:
-                # 数组类型
-                length = _type2[1]
-                arr_type = ir.ArrayType(_type, length.constant)
-                if self.builder:
-                    temp = self.builder.alloca(arr_type, name=name)
-                    if init_val:
-                        # 有初值
-                        l = len(init_val)
-                        if l > length.constant:
-                            # 数组过大
-                            return
-                        for i in range(l):
-                            indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
-                            ptr = self.builder.gep(ptr=temp, indices=indices)
-                            self.builder.store(init_val[i], ptr)
-                        temp = self.builder.bitcast(temp, ir.PointerType(_type))
-                        temp_ptr = self.builder.alloca(temp.type)
-                        self.builder.store(temp, temp_ptr)
-                        temp = temp_ptr
-                else:
-                    temp = ir.GlobalValue(self.module, arr_type, name=name)
-                # 保存指针
-                self.symbol_table.insert(name, btype=_type2, value=temp)
-
-            else:
-                # 普通变量
-                if self.builder:
-                    temp = self.builder.alloca(_type, size=1, name=name)
-                    if init_val:
-                        self.builder.store(init_val, temp)
-
-                # 保存指针
-                self.symbol_table.insert(name, btype=_type2, value=temp)
-
-    def visitSelectionStatement(self, ctx: CParser.SelectionStatementContext):
-        # xuyihao
-        if ctx.If():
-            branches = ctx.statement()
-            if len(branches) == 2:  # 存在else if/else语句
-                block_name = self.builder.block.name
-                if_block = self.builder.append_basic_block(name='{}.if'.format(block_name))
-                then_block = self.builder.append_basic_block(name='{}.then'.format(block_name))
-                else_block = self.builder.append_basic_block(name='{}.else'.format(block_name))
-                end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
-                try:
-                    self.builder.branch(if_block)
-                except:
-                    pass
-                self.builder.position_at_start(if_block)
-                expr_val = self.visit(ctx.expression())
-                self.builder.cbranch(expr_val, then_block, else_block)
-                self.builder.position_at_start(then_block)
-                self.symbol_table = createTable(self.symbol_table)
-                self.visit(branches[0])
-                self.symbol_table = self.symbol_table.getFather()
-                try:
-                    self.builder.branch(end_block)
-                except:
-                    pass
-                self.builder.position_at_start(else_block)
-                self.symbol_table = createTable(self.symbol_table)
-                self.visit(branches[1])
-                self.symbol_table = self.symbol_table.getFather()
-                try:
-                    self.builder.branch(end_block)
-                except:
-                    pass
-                self.builder.position_at_start(end_block)
-            else:  # 只有if分支
-                block_name = self.builder.block.name
-                if_block = self.builder.append_basic_block(name='{}.if'.format(block_name))
-                then_block = self.builder.append_basic_block(name='{}.then'.format(block_name))
-                end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
-                try:
-                    self.builder.branch(if_block)
-                except:
-                    pass
-                self.builder.position_at_start(if_block)
-                expr_val = self.visit(ctx.expression())
-                self.builder.cbranch(expr_val, then_block, end_block)
-                self.builder.position_at_start(then_block)
-                self.symbol_table = createTable(self.symbol_table)
-                self.visit(branches[0])
-                self.symbol_table = self.symbol_table.getFather()
-                try:
-                    self.builder.branch(end_block)
-                except:
-                    pass
-                self.builder.position_at_start(end_block)
-
-    def visitTerminal(self, node):
-        return node.getText()
-
-    def visitInitializerList(self, ctx: CParser.InitializerListContext):
-        ans = [self.visit(ctx.initializer())]
+    def visitInitializerList(self, ctx: CParser.InitializerListContext):  # DONE
+        init_list = [self.visit(ctx.initializer())]
         if ctx.initializerList():
-            ans = self.visit(ctx.initializerList()) + ans
-        return ans
+            init_list = self.visit(ctx.initializerList()) + init_list
+        return init_list
 
-    def visitParameterTypeList(self, ctx: CParser.ParameterTypeListContext):
+    def visitParameterTypeList(self, ctx: CParser.ParameterTypeListContext):  # DONE
         if ctx.parameterList():
             return self.visit(ctx.parameterList())
 
-    def visitParameterList(self, ctx: CParser.ParameterListContext):
-        if ctx.parameterList():
-            _param_list = self.visit(ctx.parameterList())
-        else:
-            _param_list = []
-        _param_decl = self.visit(ctx.parameterDeclaration())
-        _param_list.append(_param_decl)
-        return _param_list
+    def visitParameterList(self, ctx: CParser.ParameterListContext):  # DONE
+        param_list = self.visit(ctx.parameterList()) if ctx.parameterList() else []
+        new_param = self.visit(ctx.parameterDeclaration())
+        param_list.append(new_param)
+        return param_list
 
-    def visitParameterDeclaration(self, ctx: CParser.ParameterDeclarationContext):
+    def visitParameterDeclaration(self, ctx: CParser.ParameterDeclarationContext):  # DONE
+        return [self.visit(ctx.declarationSpecifiers()), self.visit(ctx.declarator())]
+
+    def visitTerminal(self, node):  # DONE
+        return node.getText()
+
+    def visitJumpStatement(self, ctx:CParser.JumpStatementContext):
+        if ctx.breakStatement():
+            self.visitBreakStatement(ctx.breakStatement())
+        elif ctx.returnStatement():
+            self.visitReturnStatement(ctx.returnStatement())
+        elif ctx.continueStatement():
+            self.visitContinueStatement(ctx.continueStatement())
+        elif ctx.gotoStatement():
+            self.visitGotoStatement(ctx.gotoStatement())
+        elif ctx.gotoGCCStatement():
+            self.visitGotoGCCStatement(ctx.gotoGCCStatement())
+
+    def visitGotoStatement(self, ctx: CParser.GotoStatementContext):
+        raise UnSupportedError("Goto Unsupported!\n")
+
+    def visitContinueStatement(self, ctx: CParser.ContinueStatementContext):
+        if self.continue_to is not None:
+            self.builder.branch(self.continue_to)
+        else:
+            raise SemanticError("No way to continue!\n", ctx)
+
+    def visitBreakStatement(self, ctx: CParser.BreakStatementContext):
+        if self.break_to is not None:
+            self.builder.branch(self.break_to)
+        else:
+            raise SemanticError("No way to break!\n", ctx)
+
+    def visitReturnStatement(self, ctx: CParser.ReturnStatementContext):
+        if ctx.expression():
+            self.builder.ret(self.visit(ctx.expression()))
+        else:
+            self.builder.ret_void()
+
+    def visitGotoGCCStatement(self, ctx: CParser.GotoGCCStatementContext):
+        raise UnSupportedError("Goto Unsupported!\n")
+
+    def visitIterationStatement(self, ctx:CParser.IterationStatementContext):
+        if ctx.whileStatement():
+            self.visitWhileStatement(ctx.whileStatement())
+        elif ctx.forStatement():
+            self.visitForStatement(ctx.forStatement())
+        elif ctx.doWhileStatement():
+            self.visitDoWhileStatement(ctx.doWhileStatement())
+
+    def visitWhileStatement(self, ctx:CParser.WhileStatementContext):
+        self.symbol_table = self.symbol_table.enter_scope()
+
+        block_name = self.builder.block.name
+        cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+        stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+        quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+
+        lst_continue_to = self.continue_to
+        lst_break_to = self.break_to
+        self.continue_to = cond_block
+        self.break_to = quit_block
+
+        # The condition expression of While
+        self.builder.branch(cond_block)
+        self.builder.position_at_start(cond_block)
+        expression = self.visit(ctx.expression())
+
+        # Judge if jump to statement or quit
+        self.builder.cbranch(expression, stat_block, quit_block)
+
+        # The statement of While
+        self.builder.position_at_start(stat_block)
+        self.visit(ctx.statement())
+
+        # Jump back to cond
+        self.builder.branch(cond_block)
+
+        # The quit block
+        self.builder.position_at_start(quit_block)
+
+        self.continue_to = lst_continue_to
+        self.break_to = lst_break_to
+        self.symbol_table = self.symbol_table.leave_scope()
+
+    def visitDoWhileStatement(self, ctx:CParser.DoWhileStatementContext):
+        self.symbol_table = self.symbol_table.enter_scope()
+
+        block_name = self.builder.block.name
+        stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+        cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+        quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+
+        lst_continue_to = self.continue_to
+        lst_break_to = self.break_to
+        self.continue_to = cond_block
+        self.break_to = quit_block
+
+        # The statement of While
+        self.builder.branch(stat_block)
+        self.builder.position_at_start(stat_block)
+        self.visit(ctx.statement())
+
+        # The condition expression of While
+        self.builder.branch(cond_block)
+        self.builder.position_at_start(cond_block)
+        expression = self.visit(ctx.expression())
+
+        # Judge if jump to statement or quit
+        self.builder.cbranch(expression, stat_block, quit_block)
+
+        # The quit block
+        self.builder.position_at_start(quit_block)
+
+        self.continue_to = lst_continue_to
+        self.break_to = lst_break_to
+        self.symbol_table = self.symbol_table.leave_scope()
+
+    def visitForStatement(self, ctx:CParser.ForStatementContext):
+        self.symbol_table = self.symbol_table.enter_scope()
+
+        block_name = self.builder.block.name
+        cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+        stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+        quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+
+        lst_continue_to = self.continue_to
+        lst_break_to = self.break_to
+        self.continue_to = cond_block
+        self.break_to = quit_block
+
+        condition_expression, op_expression = self.visit(ctx.forCondition())
+
+        # The condition of For
+        self.builder.branch(cond_block)
+        self.builder.position_at_start(cond_block)
+        condition_value = self.visit(condition_expression)
+
+        self.builder.cbranch(condition_value, stat_block, quit_block)
+        self.builder.position_at_start(stat_block)
+        self.visit(ctx.statement())
+
+        if op_expression:
+            self.visit(op_expression)
+
+        # come back to the cond
+        self.builder.branch(cond_block)
+
+        # quit block
+        self.builder.position_at_start(quit_block)
+        self.continue_to = lst_continue_to
+        self.break_to = lst_break_to
+
+        self.symbol_table = self.symbol_table.leave_scope()
+
+    def visitForCondition(self, ctx: CParser.ForConditionContext):
+        # TODO: xuyihao
+        if ctx.forDeclaration():
+            self.visit(ctx.forDeclaration())
+        elif ctx.expression():
+            self.visit(ctx.expression())
+        return ctx.forExpression(0), ctx.forExpression(1)
+
+    def visitForDeclaration(self, ctx: CParser.ForDeclarationContext):
+        # TODO: xuyihao
         _type = self.visit(ctx.declarationSpecifiers())
-        _name = self.visit(ctx.declarator())
-        return _type, _name
+        declarator_list = self.visit(ctx.initDeclaratorList())
+
+        for name, init_val in declarator_list:
+            self.variableDeclaration(name, init_val, _type)
+
+    def visitSelectionStatement(self, ctx: CParser.SelectionStatementContext):
+        # TODO: xuyihao
+        if ctx.ifStatement():
+            self.visitIfStatement(ctx.ifStatement())
+        elif ctx.switchStatement():
+            self.visitSwitchStatement(ctx.switchStatement())
+
+    def visitIfStatement(self, ctx: CParser.IfStatementContext):
+        if len(ctx.statement()) > 1:  # else or elif exist
+            self.symbol_table.enter_scope()
+
+            block_name = self.builder.block.name
+            cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+            stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+            else_block = self.builder.append_basic_block(name='else'.format(block_name))
+            quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+
+            # condition block
+            self.builder.branch(cond_block)
+            self.builder.position_at_start(cond_block)
+            condition_value = self.visit(ctx.expression())
+            self.builder.cbranch(condition_value, stat_block, else_block)
+
+            # if block
+            self.builder.position_at_start(stat_block)
+            self.symbol_table.enter_scope()
+            self.visit(ctx.statement()[0])
+            self.symbol_table.leave_scope()
+
+            # if quit block
+            try:
+                self.builder.branch(quit_block)
+            except:
+                pass
+            self.builder.position_at_start(quit_block)
+
+            # else block
+            self.builder.position_at_start(else_block)
+            self.symbol_table.enter_scope()
+            self.visit(ctx.statement()[1])
+            self.symbol_table.leave_scope()
+
+            # else quit
+            try:
+                self.builder.branch(quit_block)
+            except:
+                pass
+            self.builder.position_at_start(quit_block)
+
+            self.symbol_table.leave_scope()
+
+        else:  # no else
+            self.symbol_table.enter_scope()
+
+            block_name = self.builder.block.name
+            cond_block = self.builder.append_basic_block(name='cond'.format(block_name))
+            stat_block = self.builder.append_basic_block(name='stat'.format(block_name))
+            quit_block = self.builder.append_basic_block(name='quit'.format(block_name))
+
+            # condition block
+            self.builder.branch(cond_block)
+            self.builder.position_at_start(cond_block)
+            condition_value = self.visit(ctx.expression())
+            self.builder.cbranch(condition_value, stat_block, quit_block)
+
+            # statement block
+            self.builder.position_at_start(stat_block)
+            self.symbol_table.enter_scope()
+            self.visit(ctx.statement()[0])
+            self.symbol_table.leave_scope()
+
+            # quit block
+            try:
+                self.builder.branch(quit_block)
+            except:
+                pass
+            self.builder.position_at_start(quit_block)
+
+            self.symbol_table.leave_scope()
+
+    def visitSwitchStatement(self, ctx: CParser.SwitchStatementContext):
+       raise UnSupportedError("Switch Unsupport!\n")
 
     def output(self):
-        """返回代码"""
         return repr(self.module)
+
 
 del CParser

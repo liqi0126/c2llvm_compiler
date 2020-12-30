@@ -701,12 +701,57 @@ class CListener(ParseTreeListener):
         pass
 
 
+    # Enter a parse tree produced by CParser#ifStatement.
+    def enterIfStatement(self, ctx:CParser.IfStatementContext):
+        pass
+
+    # Exit a parse tree produced by CParser#ifStatement.
+    def exitIfStatement(self, ctx:CParser.IfStatementContext):
+        pass
+
+
+    # Enter a parse tree produced by CParser#switchStatement.
+    def enterSwitchStatement(self, ctx:CParser.SwitchStatementContext):
+        pass
+
+    # Exit a parse tree produced by CParser#switchStatement.
+    def exitSwitchStatement(self, ctx:CParser.SwitchStatementContext):
+        pass
+
+
     # Enter a parse tree produced by CParser#iterationStatement.
     def enterIterationStatement(self, ctx:CParser.IterationStatementContext):
         pass
 
     # Exit a parse tree produced by CParser#iterationStatement.
     def exitIterationStatement(self, ctx:CParser.IterationStatementContext):
+        pass
+
+
+    # Enter a parse tree produced by CParser#whileStatement.
+    def enterWhileStatement(self, ctx:CParser.WhileStatementContext):
+        pass
+
+    # Exit a parse tree produced by CParser#whileStatement.
+    def exitWhileStatement(self, ctx:CParser.WhileStatementContext):
+        pass
+
+
+    # Enter a parse tree produced by CParser#doWhileStatement.
+    def enterDoWhileStatement(self, ctx:CParser.DoWhileStatementContext):
+        pass
+
+    # Exit a parse tree produced by CParser#doWhileStatement.
+    def exitDoWhileStatement(self, ctx:CParser.DoWhileStatementContext):
+        pass
+
+
+    # Enter a parse tree produced by CParser#forStatement.
+    def enterForStatement(self, ctx:CParser.ForStatementContext):
+        pass
+
+    # Exit a parse tree produced by CParser#forStatement.
+    def exitForStatement(self, ctx:CParser.ForStatementContext):
         pass
 
 
@@ -743,6 +788,51 @@ class CListener(ParseTreeListener):
 
     # Exit a parse tree produced by CParser#jumpStatement.
     def exitJumpStatement(self, ctx:CParser.JumpStatementContext):
+        pass
+
+
+    # Enter a parse tree produced by CParser#gotoStatement.
+    def enterGotoStatement(self, ctx:CParser.GotoStatementContext):
+        pass
+
+    # Exit a parse tree produced by CParser#gotoStatement.
+    def exitGotoStatement(self, ctx:CParser.GotoStatementContext):
+        pass
+
+
+    # Enter a parse tree produced by CParser#continueStatement.
+    def enterContinueStatement(self, ctx:CParser.ContinueStatementContext):
+        pass
+
+    # Exit a parse tree produced by CParser#continueStatement.
+    def exitContinueStatement(self, ctx:CParser.ContinueStatementContext):
+        pass
+
+
+    # Enter a parse tree produced by CParser#breakStatement.
+    def enterBreakStatement(self, ctx:CParser.BreakStatementContext):
+        pass
+
+    # Exit a parse tree produced by CParser#breakStatement.
+    def exitBreakStatement(self, ctx:CParser.BreakStatementContext):
+        pass
+
+
+    # Enter a parse tree produced by CParser#returnStatement.
+    def enterReturnStatement(self, ctx:CParser.ReturnStatementContext):
+        pass
+
+    # Exit a parse tree produced by CParser#returnStatement.
+    def exitReturnStatement(self, ctx:CParser.ReturnStatementContext):
+        pass
+
+
+    # Enter a parse tree produced by CParser#gotoGCCStatement.
+    def enterGotoGCCStatement(self, ctx:CParser.GotoGCCStatementContext):
+        pass
+
+    # Exit a parse tree produced by CParser#gotoGCCStatement.
+    def exitGotoGCCStatement(self, ctx:CParser.GotoGCCStatementContext):
         pass
 
 
