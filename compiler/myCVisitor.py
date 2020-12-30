@@ -234,311 +234,460 @@ class ToLLVMVisitor(CVisitor):
 
     def visitAssignmentExpression(self, ctx: CParser.AssignmentExpressionContext):
         # TODO: dingyifeng
-        if ctx.conditionalExpression():
-            return self.visit(ctx.conditionalExpression())
-        elif ctx.unaryExpression():
-            lhs, pt = self.visit(ctx.unaryExpression())
-            if not pt:
-                raise Exception()
-            op_ = self.visit(ctx.assignmentOperator())
-            value_ = self.visit(ctx.assignmentExpression())
-            if op_ == '=':
-                return self.builder.store(value_, lhs)
-            elif op_ == '+=':
-                old_value_ = self.builder.load(lhs)
-                new_value_ = self.builder.add(value_, old_value_)
-                return self.builder.store(new_value_, lhs)
-            elif op_ == '-=':
-                old_value_ = self.builder.load(lhs)
-                new_value_ = self.builder.sub(old_value_, value_)
-                return self.builder.store(new_value_, lhs)
-            elif op_ == '*=':
-                old_value_ = self.builder.load(lhs)
-                new_value_ = self.builder.mul(old_value_, value_)
-                return self.builder.store(new_value_, lhs)
-            elif op_ == '/=':
-                old_value_ = self.builder.load(lhs)
-                new_value_ = self.builder.sdiv(old_value_, value_)
-                return self.builder.store(new_value_, lhs)
-            elif op_ == '%=':
-                old_value_ = self.builder.load(lhs)
-                new_value_ = self.builder.srem(old_value_, value_)
-                return self.builder.store(new_value_, lhs)
+        if len(ctx.children) == 1:
+            conditional_expression = self.visit(ctx.children[0])
+            return conditional_expression
+        elif len(ctx.children) == 3:
+            unary_expression, unary_expression_pointer = self.visit(ctx.children[0])
+            origin = self.builder.load(unary_expression)
+            if unary_expression_pointer is True:
+                assignment_operator = self.visit(ctx.children[1])
+                assignment_expression = self.visit(ctx.children[2])
+                if assignment_operator == '=':
+                    return self.builder.store(assignment_expression, unary_expression)
+                elif assignment_operator == '<<=':
+                    edited = self.builder.shl(origin, assignment_expression)
+                    return self.builder.store(edited, unary_expression)
+                elif assignment_operator == '>>=':
+                    edited = self.builder.ashr(origin, assignment_expression)
+                    return self.builder.store(edited, unary_expression)
+                elif assignment_operator == '&=':
+                    edited = self.builder.and_(origin, assignment_expression)
+                    return self.builder.store(edited, unary_expression)
+                elif assignment_operator == '^=':
+                    edited = self.builder.xor(origin, assignment_expression)
+                    return self.builder.store(edited, unary_expression)
+                elif assignment_operator == '|=':
+                    edited = self.builder.or_(origin, assignment_expression)
+                    return self.builder.store(edited, unary_expression)
+                elif assignment_operator == '*=':
+                    edited = self.builder.mul(origin, assignment_expression)
+                    return self.builder.store(edited, unary_expression)
+                elif assignment_operator == '/=':
+                    edited = self.builder.sdiv(origin, assignment_expression)
+                    return self.builder.store(edited, unary_expression)
+                elif assignment_operator == '+=':
+                    edited = self.builder.add(origin, assignment_expression)
+                    return self.builder.store(edited, unary_expression)
+                elif assignment_operator == '-=':
+                    edited = self.builder.sub(origin, assignment_expression)
+                    return self.builder.store(edited, unary_expression)
+                elif assignment_operator == '%=':
+                    edited = self.builder.srem(origin, assignment_expression)
+                    return self.builder.store(edited, unary_expression)
+                else:
+                    raise UnSupportedError("unsupported assignment operator", ctx)
             else:
-                print("unknown assignment operator")
-
-    def visitAssignmentOperator(self, ctx: CParser.AssignmentOperatorContext):
-        # TODO: dingyifeng
-        return (ctx.getText())
+                raise Exception()
 
     def visitConditionalExpression(self, ctx: CParser.ConditionalExpressionContext):
         # TODO: dingyifeng
+        logical_or_expression = self.visit(ctx.children[0])
         if len(ctx.children) == 1:
-            # 如果没有('?' expression ':' conditionalExpression)?部分
-            return self.visit(ctx.logicalOrExpression())
+            return logical_or_expression
+        elif len(ctx.children) == 5:
+            operator_expression_questionmark = ctx.children[1]
+            expression = self.visit(ctx.children[2])
+            operator_expression_colon = ctx.children[3]
+            conditional_expression = self.visit(ctx.children[4])
+            if operator_expression_questionmark.getText() != '?' or operator_expression_colon.getText() != ':':
+                raise Exception()
+            else:
+                raise Exception()
+        else:
+            raise Exception()
+
 
     def visitLogicalAndExpression(self, ctx: CParser.LogicalAndExpressionContext):
         # TODO: dingyifeng
-        if ctx.logicalAndExpression():
-            # 如果有多个'与'语句
-            lhs = self.visit(ctx.inclusiveOrExpression())
-            # result = self.builder.alloca(self.BOOL_TYPE)
-            rhs = self.visit(ctx.logicalAndExpression())
-            # with self.builder.if_else(lhs) as (then, otherwise):
-            #     with then:
-            #         self.builder.store(self.BOOL_TYPE(1), result)
-            #     with otherwise:
-            #         rhs = self.visit(ctx.logicalAndExpression())
-            #         self.builder.store(rhs, result)
-            return self.builder.and_(lhs, rhs)
+        inclusive_or_expression = self.visit(ctx.children[len(ctx.children) - 1])
+        if len(ctx.children) == 1:
+            return inclusive_or_expression
+        elif len(ctx.children) == 3:
+            logical_and_expression = self.visit(ctx.children[0])
+            operator_expression = ctx.children[1]
+            if operator_expression.getText() != '&&':
+                raise Exception()
+            else:
+                if inclusive_or_expression.type != FLOAT_TYPE:
+                    inclusive_or_expression = self.builder.icmp_signed(cmpop='!=', lhs=inclusive_or_expression
+                                                                       , rhs=ir.Constant(INT_TYPE, 0))
+                else:
+                    inclusive_or_expression = self.builder.fcmp_ordered(cmpop='!=', lhs=inclusive_or_expression
+                                                                        , rhs=ir.Constant(FLOAT_TYPE, 0))
+                if logical_and_expression.type != FLOAT_TYPE:
+                    logical_and_expression = self.builder.icmp_signed(cmpop='!=', lhs=logical_and_expression
+                                                                      , rhs=ir.Constant(INT_TYPE, 0))
+                else:
+                    logical_and_expression = self.builder.fcmp_ordered(cmpop='!=', lhs=logical_and_expression
+                                                                       , rhs=ir.Constant(FLOAT_TYPE, 0))
+                return self.builder.and_(logical_and_expression, inclusive_or_expression)
         else:
-            return self.visit(ctx.inclusiveOrExpression())
+            raise Exception()
 
     def visitInclusiveOrExpression(self, ctx: CParser.InclusiveOrExpressionContext):
         # TODO: dingyifeng
-        if ctx.inclusiveOrExpression():
-            # 上述第二种情况
-            return self.visit(ctx.inclusiveOrExpression())
+        exclusive_or_expression = self.visit(ctx.children[len(ctx.children) - 1])
+        if len(ctx.children) == 1:
+            return exclusive_or_expression
+        elif len(ctx.children) == 3:
+            inclusive_or_expression = self.visit(ctx.children[0])
+            operator_expression = ctx.children[1]
+            if operator_expression.getText() != '|':
+                raise Exception()
+            else:
+                return self.builder.or_(inclusive_or_expression, exclusive_or_expression)
         else:
-            return self.visit(ctx.exclusiveOrExpression())
+            raise Exception()
 
     def visitExclusiveOrExpression(self, ctx: CParser.ExclusiveOrExpressionContext):
         # TODO: dingyifeng
-        if ctx.exclusiveOrExpression():
-            # 上述第二种情况
-            return self.visit(ctx.exclusiveOrExpression())
+        and_expression = self.visit(ctx.children[len(ctx.children) - 1])
+        if len(ctx.children) == 1:
+            return and_expression
+        elif len(ctx.children) == 3:
+            exclusive_or_expression = self.visit(ctx.children[0])
+            operator_expression = ctx.children[1]
+            if operator_expression.getText() != '^':
+                raise Exception()
+            else:
+                return self.builder.xor(exclusive_or_expression, and_expression)
         else:
-            return self.visit(ctx.andExpression())
+            raise Exception()
 
     def visitAndExpression(self, ctx: CParser.AndExpressionContext):
         # TODO: dingyifeng
-        if ctx.andExpression():
-            return self.visit(ctx.andExpression())
+        equality_expression = self.visit(ctx.children[len(ctx.children) - 1])
+        if len(ctx.children) == 1:
+            return equality_expression
+        elif len(ctx.children) == 3:
+            and_expression = self.visit(ctx.children[0])
+            operator_expression = ctx.children[1]
+            if operator_expression.getText() != '&':
+                raise Exception()
+            else:
+                return self.builder.and_(and_expression, equality_expression)
         else:
-            return self.visit(ctx.equalityExpression())
+            raise Exception()
 
     def visitLogicalOrExpression(self, ctx: CParser.LogicalOrExpressionContext):
         # TODO: dingyifeng
-        if ctx.logicalOrExpression():
-            lhs = self.visit(ctx.logicalOrExpression())
-            rhs = self.visit(ctx.logicalAndExpression())
-            return self.builder.or_(lhs, rhs)
+        logical_and_expression = self.visit(ctx.children[len(ctx.children)-1])
+        if len(ctx.children) == 1:
+            return logical_and_expression
+        elif len(ctx.children) == 3:
+            logical_or_expression = self.visit(ctx.children[0])
+            operator_expression = ctx.children[1]
+            if operator_expression.getText() != '||':
+                raise Exception()
+            else:
+                if logical_or_expression.type != FLOAT_TYPE:
+                    logical_or_expression = self.builder.icmp_signed(cmpop='!=', lhs=logical_or_expression
+                                                                     , rhs=ir.Constant(INT_TYPE, 0))
+                else:
+                    logical_or_expression = self.builder.fcmp_ordered(cmpop='!=', lhs=logical_or_expression
+                                                                      , rhs=ir.Constant(FLOAT_TYPE, 0))
+                if logical_and_expression.type != FLOAT_TYPE:
+                    logical_and_expression = self.builder.icmp_signed(cmpop='!=', lhs=logical_and_expression
+                                                                      , rhs=ir.Constant(INT_TYPE, 0))
+                else:
+                    logical_and_expression = self.builder.fcmp_ordered(cmpop='!=', lhs=logical_and_expression
+                                                                       , rhs=ir.Constant(FLOAT_TYPE, 0))
+                return self.builder.or_(logical_or_expression, logical_and_expression)
         else:
-            return self.visit(ctx.logicalAndExpression())
+            raise Exception()
 
     def visitEqualityExpression(self, ctx: CParser.EqualityExpressionContext):
         # TODO: dingyifeng
+        relational_expression = self.visit(ctx.children[len(ctx.children)-1])
         if len(ctx.children) == 1:
-            return self.visit(ctx.relationalExpression())
+            return relational_expression
+        elif len(ctx.children) == 3:
+            equality_expression = self.visit(ctx.children[0])
+            operator_expression = ctx.children[1]
+            if equality_expression.type == FLOAT_TYPE:
+                # todo: fix
+                return self.builder.fcmp_ordered(cmpop=operator_expression.getText(), lhs=equality_expression
+                                                 , rhs=relational_expression)
+            else:
+                return self.builder.icmp_signed(cmpop=operator_expression.getText(), lhs=equality_expression
+                                                , rhs=relational_expression)
         else:
-            op = ctx.children[1].getText()
-            lhs = self.visit(ctx.equalityExpression())
-            rhs = self.visit(ctx.relationalExpression())
-            return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs)
+            raise Exception()
+
 
     def visitRelationalExpression(self, ctx: CParser.RelationalExpressionContext):
         # TODO: dingyifeng
+        shift_expression = self.visit(ctx.children[len(ctx.children)-1])
+        shift_type = shift_expression.type
         if len(ctx.children) == 1:
-            return self.visit(ctx.shiftExpression())
-        else:
-            lhs = self.visit(ctx.relationalExpression())
-            rhs = self.visit(ctx.shiftExpression())
-            op = ctx.children[1].getText()
-            converted_target = lhs.type
-            if rhs.type == INT_TYPE or rhs.type == CHAR_TYPE:
-                return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs)
-            elif rhs.type == FLOAT_TYPE:
-                return self.builder.fcmp_signed(cmpop=op, lhs=lhs, rhs=rhs)
+            return shift_expression
+        elif len(ctx.children) == 3:
+            relational_expression = self.visit(ctx.children[0])
+            operator_expression = ctx.children[1]
+            if relational_expression.type == FLOAT_TYPE:
+                # todo: fix
+                # print(eval(shift_expression))
+                # shift_expression = self.builder.sitofp(shift_expression, float)
+                # print(shift_expression)
+                # print(shift_type == self.FLOAT_TYPE)
+                # if shift_expression.type != self.FLOAT_TYPE:
+                #     shift_expression = self.builder.sitofp(shift_expression, float)
+                return self.builder.fcmp_ordered(cmpop=operator_expression.getText(), lhs=relational_expression
+                                                 , rhs=shift_expression)
             else:
-                print("unknown type")
+                return self.builder.icmp_signed(cmpop=operator_expression.getText(), lhs=relational_expression
+                                                , rhs=shift_expression)
+        else:
+            raise Exception()
+
 
     def visitShiftExpression(self, ctx: CParser.ShiftExpressionContext):
         # TODO: dingyifeng
+        additive_expression = self.visit(ctx.children[len(ctx.children) - 1])
         if len(ctx.children) == 1:
-            return self.visit(ctx.additiveExpression())
+            return additive_expression
+        elif len(ctx.children) == 3:
+            shift_expression = self.visit(ctx.children[0])
+            if ctx.children[1].getText() == '<<':
+                return self.builder.shl(shift_expression, additive_expression)
+            elif ctx.children[1].getText() == '>>':
+                return self.builder.ashr(shift_expression, additive_expression)
+            else:
+                raise UnSupportedError("unsupported shift expression", ctx)
         else:
-            print("you can't do that")
+            raise Exception()
 
     def visitAdditiveExpression(self, ctx: CParser.AdditiveExpressionContext):
         # TODO: dingyifeng
-        _mul = self.visit(ctx.multiplicativeExpression())
-        if ctx.additiveExpression():
-            _add = self.visit(ctx.additiveExpression())
-
-            if ctx.Plus():
-                return self.builder.add(_add, _mul)
-            elif ctx.Minus():
-                return self.builder.sub(_add, _mul)
-
+        multiplicative_expression = self.visit(ctx.children[len(ctx.children)-1])
+        if len(ctx.children) == 1:
+            return multiplicative_expression
+        elif len(ctx.children) == 3:
+            additive_expression = self.visit(ctx.children[0])
+            if ctx.children[1].getText() == '+':
+                return self.builder.add(additive_expression, multiplicative_expression)
+            elif ctx.children[1].getText() == '-':
+                return self.builder.sub(additive_expression, multiplicative_expression)
+            else:
+                raise UnSupportedError("unsupported additive expression", ctx)
         else:
-            return _mul
+            raise Exception()
 
     def visitMultiplicativeExpression(self, ctx: CParser.MultiplicativeExpressionContext):
         # TODO: dingyifeng
-        _cast, _ = self.visit(ctx.castExpression())
-        if ctx.multiplicativeExpression():
-            _mul = self.visit(ctx.multiplicativeExpression())
-            if ctx.Star():
-                return self.builder.mul(_mul, _cast)
-            elif ctx.Div():
-                return self.builder.sdiv(_mul, _cast)
-            elif ctx.Mod():
-                return self.builder.srem(_mul, _cast)
+        cast_expression, _ = self.visit(ctx.children[len(ctx.children) - 1])
+        if len(ctx.children) == 1:
+            return cast_expression
+        elif len(ctx.children) == 3:
+            multiplicative_expression = self.visit(ctx.children[0])
+            if ctx.children[1].getText() == '*':
+                return self.builder.mul(multiplicative_expression, cast_expression)
+            elif ctx.children[1].getText() == '/':
+                return self.builder.sdiv(multiplicative_expression, cast_expression)
+            elif ctx.children[1].getText() == '%':
+                return self.builder.srem(multiplicative_expression, cast_expression)
+            else:
+                raise UnSupportedError("unsupported multiplicative expression", ctx)
         else:
-            return _cast
+            raise Exception()
 
     def visitCastExpression(self, ctx: CParser.CastExpressionContext):
         # TODO: dingyifeng
-        if ctx.unaryExpression():
-            res = self.visit(ctx.unaryExpression())
-            val, pt = res[0], res[1]
-            if pt is True:
-                pt = val
-                val = self.builder.load(val)
-
-            return val, pt
-
-        if ctx.typeName():
-            _target_type = self.visit(ctx.typeName())
-            val, pt = self.visit(ctx.castExpression())
-            val = self.builder.bitcast(val, _target_type)
-            return val, pt
+        if len(ctx.children) == 1:
+            unary_expression, unary_expression_pointer = self.visit(ctx.children[0])
+            if unary_expression_pointer is True:
+                unary_expression_pointer = unary_expression
+                unary_expression = self.builder.load(unary_expression_pointer)
+            return unary_expression, unary_expression_pointer
+        elif len(ctx.children) == 4 or len(ctx.children) == 5:
+            if ctx.children[len(ctx.children)-4] != '(' or ctx.children[len(ctx.children)-2] != ')':
+                raise Exception()
+            else:
+                cast_expression, cast_expression_pointer = self.visit(ctx.children[len(ctx.children)-1])
+                type_name = self.visit(ctx.children[len(ctx.children)-3])
+                cast_expression = self.builder.bitcast(cast_expression, type_name)
+                return cast_expression, cast_expression_pointer
 
     def visitUnaryExpression(self, ctx: CParser.UnaryExpressionContext):
         # TODO: dingyifeng
-        if ctx.postfixExpression():
-            return self.visit(ctx.postfixExpression())
-
-        if ctx.unaryOperator():
-            val, pt = self.visit(ctx.castExpression())
-            op = self.visit(ctx.unaryOperator())
-            if op == '-':
-                return self.builder.neg(val), False
-            elif op == '&':
-                if pt:
-                    return pt, False
+        if len(ctx.children) == 1:
+            postfix_expression, _ = self.visit(ctx.children[0])
+            return postfix_expression, _
+        elif len(ctx.children) == 2:
+            operator = ctx.children[0]
+            if operator.getText() == '++':
+                unary_expression, unary_expression_pointer = self.visit(ctx.children[1])
+                if unary_expression_pointer is True:
+                    unary_expression_pointer = unary_expression
+                    unary_expression = self.builder.load(unary_expression_pointer)
+                    unary_expression = self.builder.add(unary_expression, ir.Constant(INT_TYPE, 1))
+                    self.builder.store(unary_expression, unary_expression_pointer)
+                return unary_expression, unary_expression_pointer
+            elif operator.getText() == '--':
+                unary_expression, unary_expression_pointer = self.visit(ctx.children[1])
+                if unary_expression_pointer is True:
+                    unary_expression_pointer = unary_expression
+                    unary_expression = self.builder.load(unary_expression_pointer)
+                    unary_expression = self.builder.sub(unary_expression, ir.Constant(INT_TYPE, 1))
+                    self.builder.store(unary_expression, unary_expression_pointer)
+                return unary_expression, unary_expression_pointer
+            elif operator.getText() == 'sizeof':
+                raise Exception()
+            elif operator.getText() == '&&':
+                raise Exception()
+            else:
+                unary_expression, unary_expression_pointer = self.visit(ctx.children[1])
+                if operator.getText() == '&':
+                    return unary_expression_pointer, False
+                elif operator.getText() == '*':
+                    if unary_expression_pointer is True:
+                        unary_expression_pointer = unary_expression
+                        unary_expression = self.builder.load(unary_expression_pointer)
+                    return unary_expression, unary_expression_pointer
+                elif operator.getText() == '+':
+                    return unary_expression, False
+                elif operator.getText() == '-':
+                    return self.builder.neg(unary_expression), False
+                elif operator.getText() == '~':
+                    return self.builder.not_(unary_expression), False
+                elif operator.getText() == '!':
+                    if unary_expression.type != FLOAT_TYPE:
+                        return self.builder.icmp_signed(cmpop='==', lhs=unary_expression
+                                                        , rhs=ir.Constant(INT_TYPE, 0)), False
+                    else:
+                        return self.builder.fcmp_ordered(cmpop='==', lhs=unary_expression
+                                                         , rhs=ir.Constant(FLOAT_TYPE, 0)), False
                 else:
-                    raise Exception()
-            elif op == '*':
-                pt = val
-                val = self.builder.load(pt)
-                return val, pt
+                    raise UnSupportedError("unsupported unary expression", ctx)
+        else:
+            raise Exception()
 
-        if ctx.PlusPlus():
-            val, pt = self.visit(ctx.unaryExpression())
-            if pt:
-                pt = val
-                val = self.builder.load(pt)
-                new_val = self.builder.add(val, ir.Constant(INT_TYPE, 1))
-                self.builder.store(new_val, pt)
-                return new_val, pt
-            else:
-                raise Exception()
-
-        if ctx.MinusMinus():
-            val, pt = self.visit(ctx.unaryExpression())
-            if pt:
-                pt = val
-                val = self.builder.load(pt)
-                new_val = self.builder.add(val, ir.Constant(INT_TYPE, -1))
-                self.builder.store(new_val, pt)
-                return new_val, pt
-            else:
-                raise Exception()
+    def handlePostfixExpressionInstance(self, ctx, postfix_operator):
+        postfix_expression = ctx.children[0]
+        identifier = ctx.children[2]
+        postfix_expression_pointer = self.symbol_table.get_value(postfix_expression.getText())
+        if postfix_operator.getText() == '.':
+            identifier_index = self.struct_table.get_param_indice(postfix_expression_pointer.type.pointee.name
+                                                                  , identifier.getText())
+        elif postfix_operator.getText() == '->':
+            identifier_index = self.struct_table.get_param_indice(postfix_expression_pointer.type.pointee.pointee.name
+                                                                  , identifier.getText())
+        else:
+            raise Exception()
+        # constant type?
+        identifier_indices = [ir.Constant(INT_TYPE, 0), ir.Constant(INT_TYPE, identifier_index)]
+        return postfix_expression_pointer, identifier_indices
 
     def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
         # TODO: dingyifeng
-        if ctx.primaryExpression():
-            return self.visit(ctx.primaryExpression())
-
-        elif ctx.expression():
-            # 获取指向指针的指针
-            var, pt = self.visit(ctx.postfixExpression())
-            if not pt:
-                raise Exception()
-            # 得到指针的值
-            var = self.builder.load(var)
-            # 获取指针指向的类型
-            value = self.builder.load(var)
-            arr_type = ir.PointerType(ir.ArrayType(value.type, 100))
-            # 将指针转换为指向数组的指针
-            var = self.builder.bitcast(var, arr_type)
-            # 获取 index 并构造 indices
-            index = self.visit(ctx.expression())
-            indices = [ir.Constant(INT_TYPE, 0), index]
-            # 取值
-            ptr = self.builder.gep(ptr=var, indices=indices)
-            return ptr, True
-        elif ctx.postfixExpression():
-            if ctx.children[1].getText() == '(':
-                # 表示是一个函数声明
-                if ctx.argumentExpressionList():
-                    args_ = self.visit(ctx.argumentExpressionList())
+        if len(ctx.children) == 1:
+            primary_expression = self.visit(ctx.children[0])
+            return primary_expression
+        else:
+            postfix_expression, postfix_expression_pointer = self.visit(ctx.children[0])
+            if postfix_expression_pointer is True:
+                if len(ctx.children) == 2:
+                    postfix_operator = ctx.children[1]
+                    if postfix_operator.getText() == '++':
+                        postfix_expression_pointer = postfix_expression
+                        postfix_expression = self.builder.load(postfix_expression_pointer)
+                        self.builder.store(postfix_expression, postfix_expression_pointer)
+                        new_postfix_expression = self.builder.add(postfix_expression, ir.Constant(INT_TYPE, 1))
+                        self.builder.store(new_postfix_expression, postfix_expression_pointer)
+                        return postfix_expression, postfix_expression_pointer
+                    elif postfix_operator.getText() == '--':
+                        postfix_expression_pointer = postfix_expression
+                        postfix_expression = self.builder.load(postfix_expression_pointer)
+                        self.builder.store(postfix_expression, postfix_expression_pointer)
+                        new_postfix_expression = self.builder.sub(postfix_expression, ir.Constant(INT_TYPE, 1))
+                        self.builder.store(new_postfix_expression, postfix_expression_pointer)
+                        return postfix_expression, postfix_expression_pointer
+                    else:
+                        raise Exception()
+                elif len(ctx.children) == 3:
+                    postfix_operator = ctx.children[1]
+                    if postfix_operator.getText() == '(':
+                        argument_expression_list = []
+                        return self.builder.call(postfix_expression, argument_expression_list), False
+                    elif postfix_operator.getText() == '.':
+                        postfix_expression_pointer, identifier_indices \
+                            = self.handlePostfixExpressionInstance(ctx, postfix_operator)
+                        postfix_expression_pointer = self.builder.gep(ptr=postfix_expression_pointer
+                                                                      , indices=identifier_indices)
+                        return postfix_expression_pointer, True
+                    elif postfix_operator.getText() == '->':
+                        postfix_expression_pointer, identifier_indices \
+                            = self.handlePostfixExpressionInstance(ctx, postfix_operator)
+                        postfix_expression_pointer = self.builder.gep(ptr=self.builder.load(postfix_expression_pointer)
+                                                                      , indices=identifier_indices)
+                        return postfix_expression_pointer, True
+                    else:
+                        raise Exception()
+                elif len(ctx.children) == 4:
+                    postfix_operator = ctx.children[1]
+                    if postfix_operator.getText() == '[':
+                        postfix_expression = self.builder.load(postfix_expression)
+                        postfix_expression_array_type = self.builder.load(postfix_expression).type
+                        postfix_expression_pointer_type = ir.PointerType(ir.ArrayType(postfix_expression_array_type, 0))
+                        postfix_expression_pointer = self.builder.bitcast(postfix_expression, postfix_expression_pointer_type)
+                        postfix_expression_index = self.visit(ctx.children[2])
+                        postfix_expression_indices = [ir.Constant(INT_TYPE, 0), postfix_expression_index]
+                        postfix_expression_pointer = self.builder.gep(ptr=postfix_expression_pointer, indices=postfix_expression_indices)
+                        return postfix_expression_pointer, True
+                    elif postfix_operator.getText() == '(':
+                        argument_expression_list = self.visit(ctx.children[2])
+                        return self.builder.call(postfix_expression, argument_expression_list), False
+                    else:
+                        raise Exception()
                 else:
-                    args_ = []
-                lhs, _ = self.visit(ctx.postfixExpression())
-                return self.builder.call(lhs, args_), False
-            elif ctx.children[1].getText() == '.':
-                struct_instance_ptr_name = ctx.postfixExpression().getText()
-                param_name = ctx.Identifier().getText()
-                struct_instance_ptr = self.symbol_table.get_value(struct_instance_ptr_name)
-                struct_type_name = struct_instance_ptr.type.pointee.name
-                indice_ = self.struct_table.get_param_indice(struct_type_name, param_name)
-                indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), indice_)]
-                ptr = self.builder.gep(ptr=struct_instance_ptr, indices=indices)
-                return ptr, True
-            elif ctx.children[1].getText() == '->':
-                struct_instance_ptr_name = ctx.postfixExpression().getText()
-                param_name = ctx.Identifier().getText()
-                struct_instance_ptr = self.symbol_table.get_value(struct_instance_ptr_name)
-                struct_type_name = struct_instance_ptr.type.pointee.pointee.name
-                new_ptr = self.builder.load(struct_instance_ptr)
-                # 先将结构体指针load为结构体
-                indice_ = self.struct_table.get_param_indice(struct_type_name, param_name)
-                indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), indice_)]
-                ptr = self.builder.gep(ptr=new_ptr, indices=indices)
-                return ptr, True
+                    raise Exception()
             else:
-                print("Ooops, unsupported type in postfix expression!")
+                raise Exception()
 
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
         # TODO: dingyifeng
-        _str = ctx.getText()
-        if ctx.Identifier():
-            rhs = self.symbol_table.get_value(ctx.Identifier().getText())
-            return rhs, True
-        if ctx.Constant():
-            _str = ctx.Constant().getText()
-            val = eval(_str)
-            if val.__class__ == int:
-                return ir.Constant(INT_TYPE, val), False
-            elif val.__class__ == float:
-                return ir.Constant(FLOAT_TYPE, val), False
-            elif val.__class__ == str:
-                val = ord(val)
-                return ir.Constant(CHAR_TYPE, val), False
-            else:
+        if len(ctx.children) == 1:
+            if ctx.Identifier():
+                identifier = ctx.children[0]
+                value = self.symbol_table.get_value(identifier.getText())
+                return value, True
+            elif ctx.Constant():
+                constant = ctx.children[0]
+                constant_value = eval(constant.getText())
+                if constant_value.__class__ == int:
+                    return ir.Constant(INT_TYPE, constant_value), False
+                elif constant_value.__class__ == float:
+                    return ir.Constant(FLOAT_TYPE, constant_value), False
+                elif constant_value.__class__ == str:
+                    constant_value = ord(constant_value)
+                    return ir.Constant(CHAR_TYPE, constant_value), False
+                else:
+                    raise Exception()
+            elif ctx.StringLiteral():
+                string_literal = eval(ctx.StringLiteral()[0].getText())
+                string = [ir.Constant(CHAR_TYPE, ord(i)) for i in string_literal]
+                string = string + [ir.Constant(CHAR_TYPE, 0)]
+                string_literal_pointer = self.builder.alloca(ir.ArrayType(CHAR_TYPE, len(string)))
+                self.builder.store(ir.Constant.literal_array(string), string_literal_pointer)
+                string_literal_pointer = self.builder.bitcast(string_literal_pointer, ir.PointerType(CHAR_TYPE))
+                return string_literal_pointer, False
+        elif len(ctx.children) == 3:
+            if ctx.children[0] != '(' or ctx.children[2] != ')':
                 raise Exception()
-        elif ctx.StringLiteral():
-            _str = eval(ctx.StringLiteral()[0].getText())
-            _str_array = [ir.Constant(CHAR_TYPE, ord(i)) for i in _str] + [ir.Constant(CHAR_TYPE, 0)]
-            temp = ir.Constant.literal_array(_str_array)
-            arr_type = ir.ArrayType(CHAR_TYPE, len(_str_array))
-            ptr = self.builder.alloca(arr_type)
-            self.builder.store(temp, ptr)
-            ptr = self.builder.bitcast(ptr, ir.PointerType(CHAR_TYPE))
-            return ptr, False
-        elif ctx.expression():
-            print("pppp")
-            print("ctx.expression().getText()", ctx.expression().getText())
-            return self.visit(ctx.expression()), False
+            else:
+                expression = self.visit(ctx.children[1])
+                return expression, False
         else:
-            print("Oops, not supported in primary expression")
+            raise Exception()
 
-    def visitArgumentExpressionList(self, ctx: CParser.ArgumentExpressionListContext):  # DONE
-        args_list = self.visit(ctx.argumentExpressionList()) if ctx.argumentExpressionList() else []
-        args_list += [self.visit(ctx.assignmentExpression())]
-        return args_list
+    def visitArgumentExpressionList(self, ctx: CParser.ArgumentExpressionListContext):
+        # TODO: dingyifeng
+        result_arg = []
+        if ctx.argumentExpressionList():
+            result_arg = self.visit(ctx.argumentExpressionList())
+        result_arg.append(self.visit(ctx.assignmentExpression()))
+        return result_arg
 
     def visitCompoundStatement(self, ctx):
         for i in ctx.children:
