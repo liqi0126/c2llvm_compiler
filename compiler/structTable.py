@@ -23,3 +23,12 @@ class StructTable:
     def insert(self, name, ptr, param_list, type_list):
         self.struct_table[name] = {"ptr": ptr, "param_list": param_list, "type_list": type_list}
 
+    def show_table(self):
+        print('name\t\tptr\t\ttype\t\tparam')
+        for name in self.struct_table:
+            struct = self.struct_table[name]
+            ptr = struct['ptr']
+            type = struct['type_list']
+            param = struct['param_list']
+            print(f'{name}\t\t{ptr}\t\t{type}\t\t{param}')
+
