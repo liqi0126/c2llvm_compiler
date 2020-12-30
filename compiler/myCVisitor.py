@@ -370,6 +370,23 @@ class ToLLVMVisitor(CVisitor):
         else:
             raise Exception()
 
+    def visitConditionalExpression(self, ctx: CParser.ConditionalExpressionContext):
+        # TODO: dingyifeng
+        logical_or_expression = self.visit(ctx.children[0])
+        if len(ctx.children) == 1:
+            return logical_or_expression
+        elif len(ctx.children) == 5:
+            operator_expression_questionmark = ctx.children[1]
+            expression = self.visit(ctx.children[2])
+            operator_expression_colon = ctx.children[3]
+            conditional_expression = self.visit(ctx.children[4])
+            if operator_expression_questionmark.getText() != '?' or operator_expression_colon.getText() != ':':
+                raise Exception()
+            else:
+                return expression
+        else:
+            raise Exception()
+
     def visitLogicalOrExpression(self, ctx: CParser.LogicalOrExpressionContext):
         # TODO: dingyifeng
         logical_and_expression = self.visit(ctx.children[len(ctx.children)-1])
@@ -405,8 +422,11 @@ class ToLLVMVisitor(CVisitor):
         elif len(ctx.children) == 3:
             equality_expression = self.visit(ctx.children[0])
             operator_expression = ctx.children[1]
-            if equality_expression.type == FLOAT_TYPE:
-                # todo: fix
+            if equality_expression.type == FLOAT_TYPE or relational_expression.type == FLOAT_TYPE:
+                if equality_expression.type != FLOAT_TYPE:
+                    equality_expression = self.builder.sitofp(equality_expression, FLOAT_TYPE)
+                if relational_expression.type != FLOAT_TYPE:
+                    relational_expression = self.builder.sitofp(relational_expression, FLOAT_TYPE)
                 return self.builder.fcmp_ordered(cmpop=operator_expression.getText(), lhs=equality_expression
                                                  , rhs=relational_expression)
             else:
@@ -425,14 +445,11 @@ class ToLLVMVisitor(CVisitor):
         elif len(ctx.children) == 3:
             relational_expression = self.visit(ctx.children[0])
             operator_expression = ctx.children[1]
-            if relational_expression.type == FLOAT_TYPE:
-                # todo: fix
-                # print(eval(shift_expression))
-                # shift_expression = self.builder.sitofp(shift_expression, float)
-                # print(shift_expression)
-                # print(shift_type == self.FLOAT_TYPE)
-                # if shift_expression.type != self.FLOAT_TYPE:
-                #     shift_expression = self.builder.sitofp(shift_expression, float)
+            if relational_expression.type == FLOAT_TYPE or shift_expression.type == FLOAT_TYPE:
+                if shift_expression.type != FLOAT_TYPE:
+                    shift_expression = self.builder.sitofp(shift_expression, FLOAT_TYPE)
+                if relational_expression.type != FLOAT_TYPE:
+                    relational_expression = self.builder.sitofp(relational_expression, FLOAT_TYPE)
                 return self.builder.fcmp_ordered(cmpop=operator_expression.getText(), lhs=relational_expression
                                                  , rhs=shift_expression)
             else:
