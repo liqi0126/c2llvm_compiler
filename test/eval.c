@@ -1,7 +1,3 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-
 int scanf(const char *format, ...);
 int printf(const char *format,...);
 int strlen(const char * s);

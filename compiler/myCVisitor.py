@@ -65,7 +65,6 @@ class ToLLVMVisitor(CVisitor):
             self.symbol_table.insert(name, (BASE_TYPE, None))
             return name
         elif ctx.children[1].getText() == '[':
-            # TODO: 2-dim vector
             length = self.visit(ctx.assignmentExpression())
             btype = (ARRAY_TYPE, length)
             self.symbol_table.insert(name, btype=btype)
@@ -129,7 +128,6 @@ class ToLLVMVisitor(CVisitor):
 
     def visitStructDeclaration(self, ctx: CParser.StructDeclarationContext):  # DONE
         if ctx.structDeclaratorList():
-            # TODO: what's this?
             raise UnSupportedError("unsupported structDeclaratorList yet", ctx)
             # struct_type = self.visit(ctx.specifierQualifierList())
             # struct_name = self.visit(ctx.structDeclaratorList())
@@ -150,7 +148,6 @@ class ToLLVMVisitor(CVisitor):
         return self.visit(ctx.declarator())
 
     def visitSpecifierQualifierList(self, ctx: CParser.SpecifierQualifierListContext):  # DONE
-        # TODO: liqi
         if ctx.typeQualifier():
             raise UnSupportedError("typeQualifier not supported yet!", ctx)
         if not ctx.specifierQualifierList():
@@ -204,7 +201,7 @@ class ToLLVMVisitor(CVisitor):
             if init_val:
                 l = len(init_val)
                 if l > length.constant:
-                    raise SemanticError("length of initialization exceed length of array")
+                    raise SemanticError("length of initialization exceed length of array", ctx)
 
                 for i in range(l):
                     indices = [ir.Constant(INT_TYPE, 0), ir.Constant(INT_TYPE, i)]
@@ -740,7 +737,7 @@ class ToLLVMVisitor(CVisitor):
             self.visitGotoGCCStatement(ctx.gotoGCCStatement())
 
     def visitGotoStatement(self, ctx: CParser.GotoStatementContext):
-        raise UnSupportedError("Goto Unsupported!\n")
+        raise UnSupportedError("Goto Unsupported!\n", ctx)
 
     def visitContinueStatement(self, ctx: CParser.ContinueStatementContext):
         if self.continue_to is not None:
@@ -761,7 +758,7 @@ class ToLLVMVisitor(CVisitor):
             self.builder.ret_void()
 
     def visitGotoGCCStatement(self, ctx: CParser.GotoGCCStatementContext):
-        raise UnSupportedError("Goto Unsupported!\n")
+        raise UnSupportedError("Goto Unsupported!\n", ctx)
 
     def visitIterationStatement(self, ctx:CParser.IterationStatementContext):
         if ctx.whileStatement():
@@ -1010,11 +1007,11 @@ class ToLLVMVisitor(CVisitor):
                 if self.switch_val != self.visit(ctx.constantExpression()):
                     self.visit(ctx.statement())
             else:
-                raise SemanticError("No switch value!\n")
+                raise SemanticError("No switch value!\n", ctx)
         elif ctx.Default():
             self.visit(ctx.statement())
         elif ctx.Identifier():
-            raise UnSupportedError("labeled statement unsupported!\n")
+            raise UnSupportedError("labeled statement unsupported!\n", ctx)
 
 
     def output(self):
